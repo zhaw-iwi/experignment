@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Experiment Verwaltung</title>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+        rel="stylesheet"
+        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
+        crossorigin="anonymous"
+    >
+    <link rel="stylesheet" href="manage.css">
+</head>
+<body>
+<main class="container py-4 py-md-5">
+    <header class="mb-4">
+        <p class="text-uppercase text-primary fw-semibold small mb-1">Coordinator Tool</p>
+        <h1 class="h3 mb-2">Experiment Verwaltung</h1>
+        <p class="text-secondary mb-0">Nur für die Versuchsleitung. Bitte URL vertraulich behandeln.</p>
+    </header>
+
+    <div class="row g-4">
+        <section class="col-12 col-lg-7">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">A) Teilnehmende zurücksetzen</h2>
+                    <p class="text-secondary small">
+                        Löscht die Nutzungssperre für eine E-Mail-Adresse. Optional kann zusätzlich der zuvor
+                        reservierte Zugang wieder freigegeben werden.
+                    </p>
+
+                    <div class="mb-3">
+                        <label for="resetEmail" class="form-label">Studierenden-E-Mail suchen</label>
+                        <input id="resetEmail" class="form-control" type="email" autocomplete="off" placeholder="name@students.zhaw.ch">
+                        <div id="searchSuggestions" class="list-group mt-2 d-none"></div>
+                    </div>
+
+                    <div class="form-check mb-3">
+                        <input id="releaseAssignment" class="form-check-input" type="checkbox">
+                        <label for="releaseAssignment" class="form-check-label">
+                            Zugewiesenen Zugang zusätzlich wieder freigeben
+                        </label>
+                    </div>
+
+                    <button id="resetButton" type="button" class="btn btn-danger">Reset ausführen</button>
+                    <div id="resetMessage" class="mt-3 d-none"></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="col-12 col-lg-5">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">B) E-Mail-Adresse zulassen</h2>
+                    <p class="text-secondary small">
+                        Fügt eine Studierenden-E-Mail zur Zulassungsliste hinzu.
+                    </p>
+
+                    <div class="mb-3">
+                        <label for="allowEmail" class="form-label">Studierenden-E-Mail</label>
+                        <input id="allowEmail" class="form-control" type="email" autocomplete="off" placeholder="name@students.zhaw.ch">
+                    </div>
+
+                    <button id="allowButton" type="button" class="btn btn-primary">E-Mail zulassen</button>
+                    <div id="allowMessage" class="mt-3 d-none"></div>
+                </div>
+            </div>
+        </section>
+    </div>
+</main>
+
+<script
+    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+    integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
+    crossorigin="anonymous"
+></script>
+<script src="manage.js" defer></script>
+</body>
+</html>

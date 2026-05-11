@@ -94,6 +94,22 @@ function dashboard_participation(array $dashboard, string $email, int $experimen
     throw new RuntimeException('Participation not found in dashboard: ' . $email);
 }
 
+function dashboard_access_field_by_key(array $dashboard, int $experimentId, string $key): array
+{
+    foreach ($dashboard['experiments'] ?? [] as $experiment) {
+        if (($experiment['id'] ?? null) !== $experimentId) {
+            continue;
+        }
+        foreach ($experiment['accessFields'] ?? [] as $field) {
+            if (($field['key'] ?? '') === $key) {
+                return $field;
+            }
+        }
+    }
+
+    throw new RuntimeException('Access field not found in dashboard: ' . $key);
+}
+
 function access_item_by_key(array $experiment, string $key): array
 {
     foreach ($experiment['accessItems'] ?? [] as $item) {
@@ -426,6 +442,12 @@ try {
     assert_equals($response['body']['created'] ?? null, true, 'allowed student should be created');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'add_allowed_student',
+        'email' => 'erik@students.zhaw.ch',
+    ]);
+    assert_equals($response['status'], 201, 'management should add second allowed student');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'save_experiment',
         'name' => 'Managed Experiment',
         'description' => 'Created through management API',
@@ -450,6 +472,42 @@ try {
     assert_true($managedConditionId > 0, 'created condition id should be present');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_condition',
+        'experimentId' => $managedExperimentId,
+        'name' => 'Managed B',
+        'sortOrder' => 20,
+    ]);
+    assert_equals($response['status'], 201, 'management should create second condition');
+    $managedSecondConditionId = (int) ($response['body']['conditionId'] ?? 0);
+    assert_true($managedSecondConditionId > 0, 'created second condition id should be present');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_eligibility_selection',
+        'experimentId' => $managedExperimentId,
+        'mode' => 'selected',
+        'emails' => ['dana@students.zhaw.ch', 'erik@students.zhaw.ch'],
+    ]);
+    assert_equals($response['status'], 200, 'management should save selected participant subset');
+    assert_equals($response['body']['selectedCount'] ?? null, 2, 'selected participant subset should include two students');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_condition_assignments',
+        'experimentId' => $managedExperimentId,
+        'source' => 'manual',
+        'assignments' => [
+            ['email' => 'dana@students.zhaw.ch', 'conditionId' => $managedConditionId],
+            ['email' => 'erik@students.zhaw.ch', 'conditionId' => $managedSecondConditionId],
+        ],
+    ]);
+    assert_equals($response['status'], 200, 'management should save condition assignments for selected students');
+    assert_equals($response['body']['assignedCount'] ?? null, 2, 'two condition assignments should be saved');
+
+    $response = make_request($baseUrl, 'GET', '/api/manage/dashboard.php');
+    assert_equals($response['status'], 200, 'dashboard should load after participant and condition assignment');
+    $managedDashboardExperiment = experiment_by_id($response['body'] ?? [], $managedExperimentId);
+    assert_equals($managedDashboardExperiment['counts']['eligibilities'] ?? null, 2, 'dashboard should report selected participant count');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'save_access_field',
         'experimentId' => $managedExperimentId,
         'conditionId' => $managedConditionId,
@@ -457,12 +515,18 @@ try {
         'fieldKey' => 'managed_pid',
         'valueType' => 'pid',
         'valueSource' => 'pool',
+        'sharedValue' => 'should-not-be-stored',
         'isVisible' => true,
         'sortOrder' => 10,
     ]);
     assert_equals($response['status'], 201, 'management should create access field');
     $managedFieldId = (int) ($response['body']['fieldId'] ?? 0);
     assert_true($managedFieldId > 0, 'created field id should be present');
+
+    $response = make_request($baseUrl, 'GET', '/api/manage/dashboard.php');
+    assert_equals($response['status'], 200, 'dashboard should load after pool field creation');
+    $managedField = dashboard_access_field_by_key($response['body'] ?? [], $managedExperimentId, 'managed_pid');
+    assert_equals($managedField['sharedValue'] ?? null, null, 'pool fields should not store shared values');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'import_pool_rows',
@@ -495,6 +559,24 @@ try {
     assert_equals($response['status'], 200, 'dashboard should load after managed claim');
     $managedParticipation = dashboard_participation($response['body'] ?? [], 'dana@students.zhaw.ch', $managedExperimentId);
     $managedParticipationId = (int) $managedParticipation['id'];
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_eligibility_selection',
+        'experimentId' => $managedExperimentId,
+        'mode' => 'selected',
+        'emails' => ['erik@students.zhaw.ch'],
+    ]);
+    assert_equals($response['status'], 409, 'participant subset should keep students with participations');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_condition_assignments',
+        'experimentId' => $managedExperimentId,
+        'source' => 'manual',
+        'assignments' => [
+            ['email' => 'dana@students.zhaw.ch', 'conditionId' => $managedSecondConditionId],
+        ],
+    ]);
+    assert_equals($response['status'], 409, 'condition assignment should not change after participation exists');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'toggle_confirmation',
@@ -579,7 +661,7 @@ try {
         ],
     ]);
     assert_equals($response['status'], 200, 'management should randomize eligible students');
-    assert_equals($response['body']['totalStudents'] ?? null, 4, 'randomization should include all allowed students');
+    assert_equals($response['body']['totalStudents'] ?? null, 5, 'randomization should include all allowed students');
 
     fwrite(STDOUT, 'api_smoke_test.php: ok' . PHP_EOL);
 } finally {

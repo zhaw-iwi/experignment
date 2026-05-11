@@ -179,6 +179,78 @@ function imported_student_emails(string $raw): array
     return array_values(array_unique($emails));
 }
 
+function normalized_email_array(mixed $rawEmails): array
+{
+    if (!is_array($rawEmails)) {
+        return [];
+    }
+
+    $emails = [];
+    foreach ($rawEmails as $rawEmail) {
+        $email = normalize_student_email((string) $rawEmail);
+        if (!is_valid_student_email($email)) {
+            fail(422, 'INVALID_EMAIL', 'Bitte geben Sie gültige Studierenden-E-Mail-Adressen ein.');
+        }
+        $emails[] = $email;
+    }
+
+    return array_values(array_unique($emails));
+}
+
+function require_allowed_email_list(PDO $pdo, array $emails): void
+{
+    foreach ($emails as $email) {
+        require_allowed_student($pdo, $email);
+    }
+}
+
+function participation_emails_for_experiment(PDO $pdo, int $experimentId): array
+{
+    $statement = $pdo->prepare(
+        'SELECT student_email
+         FROM participations
+         WHERE experiment_id = :experiment_id'
+    );
+    $statement->execute(['experiment_id' => $experimentId]);
+
+    return array_map(
+        static fn (array $row): string => (string) $row['student_email'],
+        $statement->fetchAll()
+    );
+}
+
+function upsert_eligibility(PDO $pdo, int $experimentId, string $email, ?int $conditionId, string $source, bool $preserveExistingCondition = false): void
+{
+    $existing = fetch_eligibility($pdo, $experimentId, $email);
+    if ($existing === null) {
+        $insert = $pdo->prepare(
+            'INSERT INTO experiment_eligibilities (experiment_id, student_email, condition_id, source)
+             VALUES (:experiment_id, :student_email, :condition_id, :source)'
+        );
+        $insert->execute([
+            'experiment_id' => $experimentId,
+            'student_email' => $email,
+            'condition_id' => $conditionId,
+            'source' => $source,
+        ]);
+        return;
+    }
+
+    $update = $pdo->prepare(
+        'UPDATE experiment_eligibilities
+         SET condition_id = :condition_id,
+             source = :source
+         WHERE experiment_id = :experiment_id
+           AND student_email = :student_email'
+    );
+    $update->execute([
+        'experiment_id' => $experimentId,
+        'student_email' => $email,
+        'condition_id' => $preserveExistingCondition ? nullable_int($existing['condition_id'] ?? null) : $conditionId,
+        'source' => $preserveExistingCondition ? (string) $existing['source'] : $source,
+    ]);
+}
+
 try {
     if ($action === 'add_allowed_student') {
         $email = normalize_student_email((string) ($payload['email'] ?? ''));
@@ -426,6 +498,9 @@ try {
         }
         if (!is_valid_value_source($valueSource)) {
             fail(422, 'INVALID_VALUE_SOURCE', 'Die Datenquelle ist ungültig.');
+        }
+        if ($valueSource !== 'shared') {
+            $sharedValue = '';
         }
 
         $existingField = null;
@@ -747,6 +822,100 @@ try {
             fail(404, 'SLOT_NOT_FOUND', 'Der Zeitslot wurde nicht gefunden.');
         }
         json_response(200, ['slotId' => $slotId, 'deleted' => true]);
+    }
+
+    if ($action === 'save_eligibility_selection') {
+        $experimentId = required_int($payload['experimentId'] ?? null, 'INVALID_EXPERIMENT', 'Bitte wählen Sie ein Experiment aus.');
+        $mode = clean_text($payload['mode'] ?? 'selected');
+        if (!is_valid_eligibility_mode($mode)) {
+            fail(422, 'INVALID_ELIGIBILITY_MODE', 'Der Freigabemodus ist ungültig.');
+        }
+        if (fetch_experiment($pdo, $experimentId) === null) {
+            fail(404, 'EXPERIMENT_NOT_FOUND', 'Das Experiment wurde nicht gefunden.');
+        }
+
+        if ($mode === 'all_allowed') {
+            $statement = $pdo->prepare('UPDATE experiments SET eligibility_mode = :mode WHERE id = :id');
+            $statement->execute(['id' => $experimentId, 'mode' => $mode]);
+            $selectedCount = count_rows($pdo, 'SELECT COUNT(*) AS row_count FROM allowed_students', []);
+            json_response(200, ['mode' => $mode, 'selectedCount' => $selectedCount]);
+        }
+
+        $emails = normalized_email_array($payload['emails'] ?? []);
+        require_allowed_email_list($pdo, $emails);
+        $emailSet = array_fill_keys($emails, true);
+        foreach (participation_emails_for_experiment($pdo, $experimentId) as $participationEmail) {
+            if (!isset($emailSet[$participationEmail])) {
+                fail(409, 'ELIGIBILITY_SELECTION_HAS_PARTICIPATIONS', 'Studierende mit bestehenden Zuweisungen müssen in der Experimentfreigabe bleiben.');
+            }
+        }
+
+        $pdo->beginTransaction();
+        $statement = $pdo->prepare('UPDATE experiments SET eligibility_mode = :mode WHERE id = :id');
+        $statement->execute(['id' => $experimentId, 'mode' => $mode]);
+
+        if ($emails === []) {
+            $delete = $pdo->prepare('DELETE FROM experiment_eligibilities WHERE experiment_id = :experiment_id');
+            $delete->execute(['experiment_id' => $experimentId]);
+        } else {
+            $placeholders = implode(', ', array_fill(0, count($emails), '?'));
+            $delete = $pdo->prepare(
+                'DELETE FROM experiment_eligibilities
+                 WHERE experiment_id = ?
+                   AND student_email NOT IN (' . $placeholders . ')'
+            );
+            $delete->execute(array_merge([$experimentId], $emails));
+        }
+
+        foreach ($emails as $email) {
+            upsert_eligibility($pdo, $experimentId, $email, null, 'manual', true);
+        }
+        $pdo->commit();
+        json_response(200, ['mode' => $mode, 'selectedCount' => count($emails)]);
+    }
+
+    if ($action === 'save_condition_assignments') {
+        $experimentId = required_int($payload['experimentId'] ?? null, 'INVALID_EXPERIMENT', 'Bitte wählen Sie ein Experiment aus.');
+        $source = clean_text($payload['source'] ?? 'manual');
+        $assignments = is_array($payload['assignments'] ?? null) ? $payload['assignments'] : [];
+        $experiment = fetch_experiment($pdo, $experimentId);
+        if ($experiment === null) {
+            fail(404, 'EXPERIMENT_NOT_FOUND', 'Das Experiment wurde nicht gefunden.');
+        }
+        if ($experiment['condition_mode'] !== 'assigned') {
+            fail(409, 'CONDITION_ASSIGNMENT_DISABLED', 'Dieses Experiment verwendet keine zugewiesenen Bedingungen.');
+        }
+        if (!in_array($source, ['manual', 'random'], true)) {
+            fail(422, 'INVALID_ASSIGNMENT_SOURCE', 'Die Zuweisungsquelle ist ungültig.');
+        }
+        if ($assignments === []) {
+            fail(422, 'ASSIGNMENTS_REQUIRED', 'Bitte geben Sie mindestens eine Bedingungszuweisung an.');
+        }
+
+        $normalizedAssignments = [];
+        foreach ($assignments as $assignment) {
+            $email = normalize_student_email((string) ($assignment['email'] ?? ''));
+            require_allowed_student($pdo, $email);
+            $conditionId = ensure_condition_for_experiment($pdo, nullable_int($assignment['conditionId'] ?? null), $experimentId);
+            if ($conditionId === null) {
+                fail(422, 'CONDITION_REQUIRED', 'Jede Zuweisung benötigt eine Bedingung.');
+            }
+            if ($experiment['eligibility_mode'] === 'selected' && fetch_eligibility($pdo, $experimentId, $email) === null) {
+                fail(409, 'STUDENT_NOT_SELECTED', 'Diese Person ist nicht für das Experiment freigegeben.');
+            }
+            $participation = fetch_participation($pdo, $experimentId, $email);
+            if ($participation !== null && nullable_int($participation['condition_id'] ?? null) !== $conditionId) {
+                fail(409, 'CONDITION_ASSIGNMENT_HAS_PARTICIPATION', 'Bedingungen von Studierenden mit bestehenden Zuweisungen können nicht geändert werden.');
+            }
+            $normalizedAssignments[$email] = $conditionId;
+        }
+
+        $pdo->beginTransaction();
+        foreach ($normalizedAssignments as $email => $conditionId) {
+            upsert_eligibility($pdo, $experimentId, $email, $conditionId, $source, false);
+        }
+        $pdo->commit();
+        json_response(200, ['assignedCount' => count($normalizedAssignments)]);
     }
 
     if ($action === 'assign_student') {

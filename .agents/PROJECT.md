@@ -313,12 +313,25 @@ Reduce cognitive load in the staff UI by replacing the single dense management s
 - Added a single-step allowlist state with step number `0`, and made the navbar brand return to the experiment overview workflow.
 - Made the management navbar full-width instead of constraining its brand and actions inside a Bootstrap container.
 - Added an explicit `Abbrechen` action for unsaved new experiments; delete is only shown after the experiment has been saved.
+- Hid `Gemeinsamer Wert` unless the access-field source is `Gleicher Wert für alle`, and prevented stale shared values from being saved for pool or staff-entry fields.
+- Hid pool import controls until at least one saved access field uses `Aus Pool zuweisen`; pool import remains experiment/condition-scoped rather than tied to the currently edited field.
+- Added form subheadings to separate existing configuration rows from create/edit forms for conditions, access data, and time slots.
+- Made primary bottom actions span the available card width where appropriate, including experiment save/delete, access-field save, pool import, slot save, and randomization.
+- Hid the time-slot setup card unless the saved experiment is marked as requiring time slots.
+- Split experiment participant selection from condition assignment in the management UI.
+- Added participant-selection and condition-assignment modals:
+  - participants can be selected as all globally allowed students, a seeded random subset of size N, or manual email search/add
+  - assigned-condition experiments can assign selected students manually or by seeded percentage randomization, with percentages required to sum to 100
+- Added `save_eligibility_selection` and `save_condition_assignments` management actions.
+- Guarded participant subset saves and condition assignment saves so students with existing participations are not removed or reassigned inconsistently.
 - Changed experiment list items to expose a three-dot menu for editing, grading, and deletion.
 - Added the global allowed-student list to `api/manage/dashboard.php`.
 - Added `delete_allowed_student` in `api/manage/actions.php`; removal is blocked when a student already has participations.
 - Updated `manage/manage.js` to use explicit view state instead of rendering every management section at once.
 - Simplified `manage/manage.css` around Bootstrap cards, stacked views, and compact list items.
 - Expanded `tests/api_smoke_test.php` with allowlist list/removal and removal guard coverage.
+- Added smoke coverage that pool-sourced access fields do not persist shared values.
+- Added smoke coverage for participant subset saving, condition assignment saving, and participation-related guards.
 - Updated README and context documentation for the new staff UI structure and config-file deployment choice.
 
 ### How To Run

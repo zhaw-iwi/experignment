@@ -58,6 +58,8 @@ It supports:
 - opening and closing experiments
 - adding conditions
 - deleting unused conditions
+- selecting experiment participants from the global allowlist by all, seeded random subset, or manual email search
+- assigning selected participants to conditions manually or by seeded percentage randomization
 - defining access fields
 - deleting access fields
 - importing bundled access pool rows
@@ -66,6 +68,7 @@ It supports:
 - viewing and removing experiment-specific eligibilities
 - deterministic randomization across conditions
 - creating time slots with capacity
+- showing time-slot setup only for experiments marked as requiring time slots
 - viewing slot choices by slot
 - deleting unused time slots
 - opening experiment-specific editing from the overview

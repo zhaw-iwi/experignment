@@ -53,6 +53,8 @@ Eligibility modes:
 - `all_allowed`: every email in `allowed_students` can see and claim.
 - `selected`: only rows in `experiment_eligibilities` can see and claim.
 
+The staff UI manages experiment participation as a separate step from condition assignment. Participant selection can use all globally allowed students, a seeded random subset of size N, or manual email search/add from the global allowlist. For assigned-condition experiments, condition assignment is managed after the participant subset. Random condition assignment uses explicit percentages that must sum to 100 and a visible seed; manual assignment uses one condition selector per selected student. Students with existing participations must remain in the experiment participant subset, and their assigned condition cannot be changed through the bulk assignment UI.
+
 ## Access Information Model
 
 Do not hardcode access columns such as PID, survey link, or chatbot link into experiment-specific code.
@@ -73,6 +75,8 @@ Access field sources:
 
 Bundled pool rows are important. If a student receives a PID, personalized survey link, and chatbot link, these values must stay coupled by one `access_pool_rows` record. Do not assign each value from independent pools.
 
+Pool import is experiment/condition-scoped, not tied to the currently edited field form. The pasted table must contain headers matching all saved pool-sourced field keys or labels for the selected condition.
+
 Typical examples:
 
 - Current-style Experiment 1 condition: pool fields for Participant ID, survey URL, chatbot URL.
@@ -84,6 +88,7 @@ Typical examples:
 Slot-based experiments set `experiments.requires_time_slot = 1`.
 
 - Staff creates `time_slots` with labels, optional start/end datetimes, active state, sort order, and capacity.
+- The management UI shows time-slot setup only for saved experiments with `requires_time_slot = 1`.
 - A student chooses exactly one slot.
 - Capacity is enforced server-side.
 - Staff may later enter `appointments.appointment_text`, usually a specific time within the chosen half-day slot.

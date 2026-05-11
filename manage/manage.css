@@ -223,8 +223,26 @@ body {
     align-items: center;
 }
 
+.form-action-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.form-action-row > .btn {
+    width: 100%;
+}
+
 .action-row {
     justify-content: flex-end;
+}
+
+.form-section-title {
+    margin: 1rem 0 0.75rem;
+    padding-top: 1rem;
+    color: #172033;
+    font-size: 0.95rem;
+    font-weight: 700;
+    border-top: 1px solid rgba(23, 32, 51, 0.1);
 }
 
 .compact-list {
@@ -267,6 +285,35 @@ body {
     min-width: 760px;
 }
 
+.modal-tool-grid {
+    display: grid;
+    grid-template-columns: minmax(12rem, 0.8fr) minmax(20rem, 1.4fr) minmax(18rem, 1.2fr);
+    gap: 1rem;
+}
+
+.modal-tool-section {
+    padding: 0.9rem;
+    border: 1px solid rgba(23, 32, 51, 0.1);
+    border-radius: 8px;
+    background: #f9fbfe;
+}
+
+.modal-list {
+    max-height: 24rem;
+    overflow: auto;
+}
+
+.suggestion-list {
+    max-height: 14rem;
+    overflow: auto;
+}
+
+.condition-allocation-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+}
+
 @media (max-width: 991.98px) {
     .management-navbar-inner {
         flex-wrap: wrap;
@@ -300,6 +347,11 @@ body {
     }
 
     .form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .modal-tool-grid,
+    .condition-allocation-grid {
         grid-template-columns: 1fr;
     }
 

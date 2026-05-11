@@ -129,7 +129,7 @@
                             <label for="requiresTimeSlot" class="form-check-label">Zeitslot benötigt</label>
                         </div>
                     </div>
-                    <div class="span-2 button-row">
+                    <div class="span-2 button-row form-action-row">
                         <button class="btn btn-primary" type="submit">Experiment speichern</button>
                         <button id="cancelExperimentButton" class="btn btn-outline-secondary" type="button">Abbrechen</button>
                         <button id="deleteExperimentButton" class="btn btn-outline-danger" type="button">Experiment löschen</button>
@@ -144,6 +144,7 @@
             </div>
             <div class="card-body">
                 <div id="conditionList" class="compact-list mb-3"></div>
+                <h3 id="conditionFormTitle" class="form-section-title">Neue Bedingung</h3>
                 <form id="conditionForm" class="row g-2 align-items-end">
                     <input id="conditionId" type="hidden">
                     <div class="col-md-7">
@@ -167,6 +168,7 @@
             </div>
             <div class="card-body">
                 <div id="fieldList" class="compact-list mb-3"></div>
+                <h3 id="fieldFormTitle" class="form-section-title">Neue Zugangsdaten</h3>
                 <form id="fieldForm" class="form-grid">
                     <input id="fieldId" type="hidden">
                     <div>
@@ -202,7 +204,7 @@
                         <label for="fieldSortOrder" class="form-label">Reihenfolge</label>
                         <input id="fieldSortOrder" class="form-control" type="number" step="1" value="0">
                     </div>
-                    <div class="span-2">
+                    <div id="sharedValueGroup" class="span-2">
                         <label for="sharedValue" class="form-label">Gemeinsamer Wert</label>
                         <input id="sharedValue" class="form-control">
                     </div>
@@ -211,57 +213,53 @@
                             <input id="fieldIsVisible" class="form-check-input" type="checkbox" checked>
                             <label for="fieldIsVisible" class="form-check-label">Sichtbar</label>
                         </div>
-                        <button class="btn btn-primary" type="submit">Feld speichern</button>
+                    </div>
+                    <div class="span-2">
+                        <button class="btn btn-primary w-100" type="submit">Feld speichern</button>
                     </div>
                 </form>
 
-                <hr>
-                <form id="poolImportForm" class="form-grid">
-                    <div>
-                        <label for="poolConditionId" class="form-label">Pool für Bedingung</label>
-                        <select id="poolConditionId" class="form-select"></select>
-                    </div>
-                    <div class="span-2">
-                        <label for="poolTable" class="form-label">Tabelle einfügen</label>
-                        <textarea id="poolTable" class="form-control font-monospace" rows="5" placeholder="pid&#10;P001&#10;P002"></textarea>
-                    </div>
-                    <div class="align-self-end">
-                        <button class="btn btn-primary" type="submit">Pool importieren</button>
-                    </div>
-                </form>
-                <div id="poolCounts" class="small text-secondary mt-2"></div>
-                <div id="poolRowList" class="compact-list mt-3"></div>
+                <section id="poolImportSection" class="d-none">
+                    <hr>
+                    <form id="poolImportForm" class="form-grid">
+                        <div>
+                            <label for="poolConditionId" class="form-label">Pool für Bedingung</label>
+                            <select id="poolConditionId" class="form-select"></select>
+                        </div>
+                        <div class="span-2">
+                            <label for="poolTable" class="form-label">Tabelle einfügen</label>
+                            <textarea id="poolTable" class="form-control font-monospace" rows="5" placeholder="pid&#10;P001&#10;P002"></textarea>
+                        </div>
+                        <div class="align-self-end">
+                            <button class="btn btn-primary w-100" type="submit">Pool importieren</button>
+                        </div>
+                    </form>
+                    <div id="poolCounts" class="small text-secondary mt-2"></div>
+                    <div id="poolRowList" class="compact-list mt-3"></div>
+                </section>
             </div>
         </section>
 
-        <section id="eligibilityPanel" class="card shadow-sm">
-            <div class="card-header bg-white">
-                <h2 class="h5 mb-0">Freigabe und Randomisierung</h2>
+        <section id="participantPanel" class="card shadow-sm">
+            <div class="card-header bg-white d-flex flex-column flex-md-row justify-content-between gap-2 align-items-md-center">
+                <div>
+                    <h2 class="h5 mb-1">Teilnehmende Studierende</h2>
+                    <div id="participantSummary" class="text-secondary small"></div>
+                </div>
+                <button id="manageParticipantsButton" type="button" class="btn btn-outline-primary btn-sm">Auswahl bearbeiten</button>
             </div>
-            <div class="card-body">
-                <form id="assignForm" class="row g-2 align-items-end mb-3">
-                    <div class="col-md-6">
-                        <label for="assignEmail" class="form-label">E-Mail</label>
-                        <input id="assignEmail" class="form-control" type="email" placeholder="name@students.zhaw.ch">
-                    </div>
-                    <div class="col-md-3">
-                        <label for="assignConditionId" class="form-label">Bedingung</label>
-                        <select id="assignConditionId" class="form-select"></select>
-                    </div>
-                    <div class="col-md-3">
-                        <button class="btn btn-primary w-100" type="submit">Zuweisen</button>
-                    </div>
-                </form>
-                <form id="randomizeForm">
-                    <label for="randomSeed" class="form-label">Seed</label>
-                    <input id="randomSeed" class="form-control mb-2">
-                    <div id="allocationFields" class="d-grid gap-2 mb-2"></div>
-                    <button class="btn btn-outline-primary" type="submit">Alle zugelassenen Studierenden randomisieren</button>
-                </form>
-                <hr>
-                <h3 class="h6">Freigegebene Studierende</h3>
-                <div id="eligibilityList" class="compact-list"></div>
+            <div id="participantList" class="list-group list-group-flush"></div>
+        </section>
+
+        <section id="conditionAssignmentPanel" class="card shadow-sm">
+            <div class="card-header bg-white d-flex flex-column flex-md-row justify-content-between gap-2 align-items-md-center">
+                <div>
+                    <h2 class="h5 mb-1">Bedingungszuweisung</h2>
+                    <div id="conditionAssignmentSummary" class="text-secondary small"></div>
+                </div>
+                <button id="manageConditionAssignmentsButton" type="button" class="btn btn-outline-primary btn-sm">Zuweisungen bearbeiten</button>
             </div>
+            <div id="conditionAssignmentList" class="list-group list-group-flush"></div>
         </section>
 
         <section id="slotPanel" class="card shadow-sm">
@@ -271,6 +269,7 @@
             <div class="card-body">
                 <div id="slotList" class="compact-list mb-3"></div>
                 <div id="slotChoiceList" class="compact-list mb-3"></div>
+                <h3 id="slotFormTitle" class="form-section-title">Neuer Zeitslot</h3>
                 <form id="slotForm" class="form-grid">
                     <input id="slotId" type="hidden">
                     <div>
@@ -298,7 +297,7 @@
                             <input id="slotIsActive" class="form-check-input" type="checkbox" checked>
                             <label for="slotIsActive" class="form-check-label">Aktiv</label>
                         </div>
-                        <button class="btn btn-primary" type="submit">Slot speichern</button>
+                        <button class="btn btn-primary w-100" type="submit">Slot speichern</button>
                     </div>
                 </form>
             </div>
@@ -332,6 +331,99 @@
         </section>
     </section>
 </main>
+
+<div id="participantModal" class="modal fade" tabindex="-1" aria-labelledby="participantModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="participantModalTitle" class="modal-title h5">Teilnehmende Studierende auswählen</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-tool-grid mb-3">
+                    <section class="modal-tool-section">
+                        <h3 class="h6">Alle zugelassenen</h3>
+                        <button id="participantSelectAllButton" type="button" class="btn btn-outline-primary w-100">Alle auswählen</button>
+                    </section>
+                    <section class="modal-tool-section">
+                        <h3 class="h6">Zufällige Auswahl</h3>
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <label for="participantRandomCount" class="form-label">Anzahl</label>
+                                <input id="participantRandomCount" class="form-control" type="number" min="1" step="1">
+                            </div>
+                            <div class="col-md-5">
+                                <label for="participantRandomSeed" class="form-label">Seed</label>
+                                <input id="participantRandomSeed" class="form-control">
+                            </div>
+                            <div class="col-md-3 d-flex align-items-end">
+                                <button id="participantRandomButton" type="button" class="btn btn-outline-primary w-100">Auswählen</button>
+                            </div>
+                        </div>
+                    </section>
+                    <section class="modal-tool-section">
+                        <h3 class="h6">Manuell hinzufügen</h3>
+                        <label for="participantSearchInput" class="form-label">E-Mail suchen</label>
+                        <input id="participantSearchInput" class="form-control" type="search" autocomplete="off" placeholder="name@students.zhaw.ch">
+                        <div id="participantSuggestionList" class="list-group suggestion-list mt-2"></div>
+                    </section>
+                </div>
+
+                <div class="d-flex justify-content-between gap-2 align-items-center mb-2">
+                    <h3 class="h6 mb-0">Aktuelle Auswahl</h3>
+                    <span id="participantSelectedCount" class="badge text-bg-light">0 ausgewählt</span>
+                </div>
+                <div id="participantModalSelectedList" class="list-group modal-list"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Abbrechen</button>
+                <button id="participantSaveButton" type="button" class="btn btn-primary">Auswahl speichern</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="conditionAssignmentModal" class="modal fade" tabindex="-1" aria-labelledby="conditionAssignmentModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="conditionAssignmentModalTitle" class="modal-title h5">Bedingungen zuweisen</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+            </div>
+            <div class="modal-body">
+                <section class="modal-tool-section mb-3">
+                    <h3 class="h6">Zufällige Zuweisung</h3>
+                    <div id="conditionAllocationFields" class="condition-allocation-grid mb-2"></div>
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-9">
+                            <label for="conditionRandomSeed" class="form-label">Seed</label>
+                            <input id="conditionRandomSeed" class="form-control">
+                        </div>
+                        <div class="col-md-3">
+                            <button id="conditionRandomButton" type="button" class="btn btn-outline-primary w-100">Randomisieren</button>
+                        </div>
+                    </div>
+                </section>
+
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                        <tr>
+                            <th>E-Mail</th>
+                            <th>Bedingung</th>
+                        </tr>
+                        </thead>
+                        <tbody id="conditionAssignmentRows"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Abbrechen</button>
+                <button id="conditionAssignmentSaveButton" type="button" class="btn btn-primary">Zuweisungen speichern</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <script
     src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"

@@ -50,6 +50,12 @@ function db(): PDO
     }
 
     $config = app_config()['db'];
+    if (($config['missing'] ?? []) !== []) {
+        fail(500, 'DATABASE_NOT_CONFIGURED', 'Die Datenbankkonfiguration ist unvollständig.', [
+            'missing' => $config['missing'],
+        ]);
+    }
+
     try {
         $pdo = new PDO(
             $config['dsn'],

@@ -38,7 +38,7 @@ function make_request(string $baseUrl, string $method, string $path, ?array $jso
     }
 
     $context = stream_context_create($options);
-    $rawBody = file_get_contents($baseUrl . $path, false, $context);
+    $rawBody = @file_get_contents($baseUrl . $path, false, $context);
     $rawBody = is_string($rawBody) ? $rawBody : '';
     $responseHeaders = $http_response_header ?? [];
     $status = 0;
@@ -52,7 +52,57 @@ function make_request(string $baseUrl, string $method, string $path, ?array $jso
         'status' => $status,
         'body' => is_array($decoded) ? $decoded : null,
         'raw' => $rawBody,
+        'serverOutput' => read_server_output(),
     ];
+}
+
+function read_server_output(): string
+{
+    $output = '';
+    foreach (['SERVER_STDOUT_PATH' => 'stdout', 'SERVER_STDERR_PATH' => 'stderr'] as $globalName => $label) {
+        $path = $GLOBALS[$globalName] ?? null;
+        if (is_string($path) && is_file($path)) {
+            $chunk = file_get_contents($path);
+            if (is_string($chunk) && $chunk !== '') {
+                $output .= strtoupper($label) . ":\n" . $chunk . "\n";
+            }
+        }
+    }
+
+    return $output;
+}
+
+function experiment_by_id(array $overview, int $experimentId): array
+{
+    foreach ($overview['experiments'] ?? [] as $experiment) {
+        if (($experiment['id'] ?? null) === $experimentId) {
+            return $experiment;
+        }
+    }
+
+    throw new RuntimeException('Experiment not found in overview: ' . $experimentId);
+}
+
+function dashboard_participation(array $dashboard, string $email, int $experimentId): array
+{
+    foreach ($dashboard['participations'] ?? [] as $participation) {
+        if (($participation['email'] ?? '') === $email && ($participation['experimentId'] ?? null) === $experimentId) {
+            return $participation;
+        }
+    }
+
+    throw new RuntimeException('Participation not found in dashboard: ' . $email);
+}
+
+function access_item_by_key(array $experiment, string $key): array
+{
+    foreach ($experiment['accessItems'] ?? [] as $item) {
+        if (($item['key'] ?? '') === $key) {
+            return $item;
+        }
+    }
+
+    throw new RuntimeException('Access item not found: ' . $key);
 }
 
 function setup_sqlite_database(string $dbPath): void
@@ -168,6 +218,20 @@ function setup_sqlite_database(string $dbPath): void
         appointment_text TEXT NOT NULL,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )');
+    $pdo->exec('CREATE TABLE randomization_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        experiment_id INTEGER NOT NULL,
+        seed TEXT NOT NULL,
+        total_students INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )');
+    $pdo->exec('CREATE TABLE randomization_run_allocations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id INTEGER NOT NULL,
+        condition_id INTEGER NOT NULL,
+        percentage REAL NOT NULL,
+        assigned_count INTEGER NOT NULL
+    )');
 
     foreach (['alice@students.zhaw.ch', 'bob@students.zhaw.ch', 'charlie@students.zhaw.ch'] as $email) {
         $pdo->prepare('INSERT INTO allowed_students (student_email) VALUES (?)')->execute([$email]);
@@ -230,6 +294,13 @@ if (!in_array('sqlite', $drivers, true)) {
 
 $process = null;
 $pipes = [];
+$serverStdoutPath = tempnam(sys_get_temp_dir(), 'experiment_server_stdout_');
+$serverStderrPath = tempnam(sys_get_temp_dir(), 'experiment_server_stderr_');
+if ($serverStdoutPath === false || $serverStderrPath === false) {
+    throw new RuntimeException('Could not create temporary server log files.');
+}
+$GLOBALS['SERVER_STDOUT_PATH'] = $serverStdoutPath;
+$GLOBALS['SERVER_STDERR_PATH'] = $serverStderrPath;
 
 try {
     setup_sqlite_database($dbPath);
@@ -239,9 +310,10 @@ try {
 
     $port = random_int(18080, 18999);
     $baseUrl = 'http://127.0.0.1:' . $port;
-    $command = '"' . PHP_BINARY . '" -S 127.0.0.1:' . $port . ' -t "' . $docRoot . '"';
+    $command = [PHP_BINARY, '-S', '127.0.0.1:' . $port, '-t', $docRoot];
 
-    $env = $_ENV;
+    $env = getenv();
+    $env = is_array($env) ? $env : [];
     $env['EXPERIMENT_DB_DSN'] = 'sqlite:' . $dbPath;
     $env['EXPERIMENT_DB_USER'] = '';
     $env['EXPERIMENT_DB_PASSWORD'] = '';
@@ -250,8 +322,8 @@ try {
         $command,
         [
             0 => ['pipe', 'r'],
-            1 => ['pipe', 'w'],
-            2 => ['pipe', 'w'],
+            1 => ['file', $serverStdoutPath, 'a'],
+            2 => ['file', $serverStderrPath, 'a'],
         ],
         $pipes,
         null,
@@ -321,6 +393,194 @@ try {
     assert_equals($response['status'], 409, 'full slot should return 409');
     assert_equals($response['body']['error_code'] ?? null, 'SLOT_FULL', 'full slot should be explicit');
 
+    $response = make_request($baseUrl, 'GET', '/api/manage/dashboard.php');
+    assert_equals($response['status'], 200, 'management dashboard should return 200');
+    assert_equals($response['body']['allowedStudentCount'] ?? null, 3, 'dashboard should count allowed students');
+    assert_equals(count($response['body']['allowedStudents'] ?? []), 3, 'dashboard should include allowed student list');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'delete_allowed_student',
+        'email' => 'alice@students.zhaw.ch',
+    ]);
+    assert_equals($response['status'], 409, 'allowed student with participation should not be removed');
+    assert_equals($response['body']['error_code'] ?? null, 'ALLOWED_STUDENT_HAS_PARTICIPATIONS', 'allowlist removal guard should be explicit');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'add_allowed_student',
+        'email' => 'eve@students.zhaw.ch',
+    ]);
+    assert_equals($response['status'], 201, 'management should add removable allowed student');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'delete_allowed_student',
+        'email' => 'eve@students.zhaw.ch',
+    ]);
+    assert_equals($response['status'], 200, 'management should remove allowed student without participations');
+    assert_equals($response['body']['deleted'] ?? null, true, 'allowlist removal should report deletion');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'add_allowed_student',
+        'email' => 'dana@students.zhaw.ch',
+    ]);
+    assert_equals($response['status'], 201, 'management should add allowed student');
+    assert_equals($response['body']['created'] ?? null, true, 'allowed student should be created');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_experiment',
+        'name' => 'Managed Experiment',
+        'description' => 'Created through management API',
+        'eligibilityMode' => 'selected',
+        'conditionMode' => 'assigned',
+        'requiresTimeSlot' => false,
+        'isOpen' => true,
+        'sortOrder' => 30,
+    ]);
+    assert_equals($response['status'], 201, 'management should create experiment');
+    $managedExperimentId = (int) ($response['body']['experimentId'] ?? 0);
+    assert_true($managedExperimentId > 0, 'created experiment id should be present');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_condition',
+        'experimentId' => $managedExperimentId,
+        'name' => 'Managed A',
+        'sortOrder' => 10,
+    ]);
+    assert_equals($response['status'], 201, 'management should create condition');
+    $managedConditionId = (int) ($response['body']['conditionId'] ?? 0);
+    assert_true($managedConditionId > 0, 'created condition id should be present');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_access_field',
+        'experimentId' => $managedExperimentId,
+        'conditionId' => $managedConditionId,
+        'label' => 'Managed PID',
+        'fieldKey' => 'managed_pid',
+        'valueType' => 'pid',
+        'valueSource' => 'pool',
+        'isVisible' => true,
+        'sortOrder' => 10,
+    ]);
+    assert_equals($response['status'], 201, 'management should create access field');
+    $managedFieldId = (int) ($response['body']['fieldId'] ?? 0);
+    assert_true($managedFieldId > 0, 'created field id should be present');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'import_pool_rows',
+        'experimentId' => $managedExperimentId,
+        'conditionId' => $managedConditionId,
+        'table' => "managed_pid\nM001",
+    ]);
+    assert_equals($response['status'], 201, 'management should import access pool rows');
+    assert_true(is_array($response['body']), 'pool import response should be JSON: ' . $response['raw']);
+    assert_equals($response['body']['imported'] ?? null, 1, 'one pool row should be imported');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'assign_student',
+        'experimentId' => $managedExperimentId,
+        'email' => 'dana@students.zhaw.ch',
+        'conditionId' => $managedConditionId,
+    ]);
+    assert_equals($response['status'], 200, 'management should assign student eligibility');
+
+    $response = make_request($baseUrl, 'POST', '/api/claim.php', [
+        'email' => 'dana@students.zhaw.ch',
+        'experimentId' => $managedExperimentId,
+    ]);
+    assert_equals($response['status'], 200, 'assigned student should claim managed experiment');
+    $managedExperiment = experiment_by_id($response['body']['overview'] ?? [], $managedExperimentId);
+    assert_equals($managedExperiment['condition']['id'] ?? null, $managedConditionId, 'claim should use assigned condition');
+    assert_equals(access_item_by_key($managedExperiment, 'managed_pid')['value'] ?? null, 'M001', 'claim should expose imported pool value');
+
+    $response = make_request($baseUrl, 'GET', '/api/manage/dashboard.php');
+    assert_equals($response['status'], 200, 'dashboard should load after managed claim');
+    $managedParticipation = dashboard_participation($response['body'] ?? [], 'dana@students.zhaw.ch', $managedExperimentId);
+    $managedParticipationId = (int) $managedParticipation['id'];
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'toggle_confirmation',
+        'participationId' => $managedParticipationId,
+    ]);
+    assert_equals($response['status'], 200, 'management should toggle confirmation');
+    assert_equals($response['body']['confirmed'] ?? null, true, 'confirmation should be enabled');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_appointment',
+        'participationId' => $managedParticipationId,
+        'appointmentText' => '09:30',
+    ]);
+    assert_equals($response['status'], 200, 'management should save appointment text');
+
+    $response = make_request($baseUrl, 'GET', '/api/student_overview.php?email=dana%40students.zhaw.ch');
+    assert_equals($response['status'], 200, 'student should retrieve managed assignment');
+    $managedExperiment = experiment_by_id($response['body'] ?? [], $managedExperimentId);
+    assert_equals($managedExperiment['confirmed'] ?? null, true, 'student overview should show confirmation');
+    assert_equals($managedExperiment['appointmentText'] ?? null, '09:30', 'student overview should show appointment text');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'delete_condition',
+        'conditionId' => $managedConditionId,
+    ]);
+    assert_equals($response['status'], 409, 'condition with participation should not be deleted ' . $response['serverOutput']);
+    assert_equals($response['body']['error_code'] ?? null, 'CONDITION_HAS_PARTICIPATIONS', 'condition delete guard should be explicit');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'delete_access_field',
+        'fieldId' => $managedFieldId,
+    ]);
+    assert_equals($response['status'], 409, 'assigned access field should not be deleted');
+    assert_equals($response['body']['error_code'] ?? null, 'FIELD_HAS_RUNTIME_VALUES', 'field delete guard should be explicit');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'reset_participation',
+        'participationId' => $managedParticipationId,
+        'releaseAccess' => true,
+    ]);
+    assert_equals($response['status'], 200, 'management should reset participation');
+    assert_equals($response['body']['releasedAccess'] ?? null, true, 'reset should release access row');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'delete_access_field',
+        'fieldId' => $managedFieldId,
+    ]);
+    assert_equals($response['status'], 200, 'unused access field should be deleted after reset');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_experiment',
+        'name' => 'Randomized Experiment',
+        'description' => 'Created through management API',
+        'eligibilityMode' => 'selected',
+        'conditionMode' => 'assigned',
+        'requiresTimeSlot' => false,
+        'isOpen' => false,
+        'sortOrder' => 40,
+    ]);
+    assert_equals($response['status'], 201, 'management should create randomization experiment');
+    $randomExperimentId = (int) ($response['body']['experimentId'] ?? 0);
+
+    $conditionIds = [];
+    foreach (['A', 'B'] as $conditionName) {
+        $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+            'action' => 'save_condition',
+            'experimentId' => $randomExperimentId,
+            'name' => $conditionName,
+            'sortOrder' => count($conditionIds) * 10,
+        ]);
+        assert_equals($response['status'], 201, 'management should create randomization condition');
+        $conditionIds[] = (int) ($response['body']['conditionId'] ?? 0);
+    }
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'randomize',
+        'experimentId' => $randomExperimentId,
+        'seed' => 'fixed-seed',
+        'allocations' => [
+            ['conditionId' => $conditionIds[0], 'percentage' => 50],
+            ['conditionId' => $conditionIds[1], 'percentage' => 50],
+        ],
+    ]);
+    assert_equals($response['status'], 200, 'management should randomize eligible students');
+    assert_equals($response['body']['totalStudents'] ?? null, 4, 'randomization should include all allowed students');
+
     fwrite(STDOUT, 'api_smoke_test.php: ok' . PHP_EOL);
 } finally {
     if (is_resource($process)) {
@@ -335,5 +595,11 @@ try {
 
     if (is_file($dbPath)) {
         unlink($dbPath);
+    }
+    if (is_file($serverStdoutPath)) {
+        unlink($serverStdoutPath);
+    }
+    if (is_file($serverStderrPath)) {
+        unlink($serverStderrPath);
     }
 }

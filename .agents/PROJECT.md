@@ -11,6 +11,8 @@ Experiment Assignment App is a PHP/MySQL application for managing student experi
 - [x] 2026-05-11: Fixed seed eligibility foreign key references
 - [x] 2026-05-11: Split real and example seed data
 - [x] 2026-05-11: Management operations completeness pass
+- [x] 2026-05-11: Production readiness hardening pass
+- [x] 2026-05-12: Management UI hierarchy redesign
 - [ ] Migration from historical live database dump
 - [ ] Staff authentication
 
@@ -234,3 +236,118 @@ Open `manage/index.html` after importing `database/schema.sql` and `database/see
 
 - Run a browser pass against the deployed database.
 - Add more focused automated tests for management write actions once a usable PDO test driver is available.
+
+## 2026-05-11: Production Readiness Hardening Pass
+
+### Goal
+
+Trace the user-interface to API to database workflows, remove concrete production-readiness gaps, and raise automated coverage around the highest-value student and staff flows.
+
+### What Changed
+
+- Removed committed database connection defaults from `config/config.php`.
+- Added structured `DATABASE_NOT_CONFIGURED` failures when required database environment variables are missing.
+- Made duplicate claim and duplicate slot-choice races return the existing successful state instead of a generic 500 when another request already completed the operation.
+- Hardened management access-field operations:
+  - missing field updates now return 404
+  - fields backing assigned runtime values cannot be deleted
+  - fields backing assigned runtime values cannot have their condition, key, type, or source changed
+- Hardened slot updates:
+  - missing slot updates now return 404
+  - existing capacity cannot be reduced below the number of submitted choices
+- Made tabular pool import compatible with PHP 8.5 by passing the `str_getcsv` escape parameter explicitly.
+- Fixed the management reload button so click events are not rendered as success messages.
+- Made the management "Neu" action visibly switch the experiment form into a new-experiment state and focus the name field.
+- Hid experiment-dependent management panels until a saved experiment is selected.
+- Expanded `tests/api_smoke_test.php` to cover management setup, eligibility assignment, pool import, managed claiming, confirmation, appointment retrieval, reset, deletion guards, and randomization when `pdo_sqlite` is available.
+- Hardened the smoke-test server harness on Windows by preserving the parent process environment and launching the built-in PHP server without an intermediate shell.
+- Updated README and context notes for the configuration and test coverage changes.
+
+### How To Run
+
+1. Configure database environment variables or set `EXPERIMENT_DB_DSN`.
+2. Import `database/schema.sql`.
+3. Import `database/seed.sql` for production-style setup or `database/seed_examples.sql` for a throwaway demo database.
+4. Serve `index.html` and `manage/index.html` through PHP/web hosting.
+
+### How To Test
+
+- `Get-ChildItem -Recurse -Filter *.php | ForEach-Object { php -l $_.FullName }`
+- `php tests/validation_test.php`
+- `php tests/text_quality_test.php`
+- `php tests/api_smoke_test.php`
+
+Observed on 2026-05-11:
+
+- PHP syntax checks passed for all PHP files.
+- `validation_test.php` passed.
+- `text_quality_test.php` passed.
+- `api_smoke_test.php` passed after enabling `pdo_sqlite` in the active PHP `php.ini`.
+
+### Known Issues And Decisions
+
+- Staff authentication is still deferred and remains the largest production security gap.
+- Browser/manual QA against a MySQL-backed environment is still needed before live use.
+- Historical live data migration remains deferred.
+
+### Next Steps
+
+- Run a browser pass against a MySQL-backed database.
+- Add staff authentication before broader deployment.
+
+## 2026-05-12: Management UI Hierarchy Redesign
+
+### Goal
+
+Reduce cognitive load in the staff UI by replacing the single dense management surface with an overview, experiment editing view, and experiment-specific grading view.
+
+### What Changed
+
+- Rebuilt `manage/index.html` around Bootstrap cards and explicit views:
+  - overview with experiments only
+  - dedicated global allowed-student list opened from the count badge
+  - experiment edit view with existing setup sections stacked full-width
+  - experiment grading view with participation confirmation and appointment controls
+- Replaced the breadcrumb with a full-width workflow strip for the overview, experiment edit view, and experiment grading view.
+- Moved the global allowed-student entry point out of the hierarchy and into a right-aligned editable student-count badge.
+- Added a single-step allowlist state with step number `0`, and made the navbar brand return to the experiment overview workflow.
+- Made the management navbar full-width instead of constraining its brand and actions inside a Bootstrap container.
+- Added an explicit `Abbrechen` action for unsaved new experiments; delete is only shown after the experiment has been saved.
+- Changed experiment list items to expose a three-dot menu for editing, grading, and deletion.
+- Added the global allowed-student list to `api/manage/dashboard.php`.
+- Added `delete_allowed_student` in `api/manage/actions.php`; removal is blocked when a student already has participations.
+- Updated `manage/manage.js` to use explicit view state instead of rendering every management section at once.
+- Simplified `manage/manage.css` around Bootstrap cards, stacked views, and compact list items.
+- Expanded `tests/api_smoke_test.php` with allowlist list/removal and removal guard coverage.
+- Updated README and context documentation for the new staff UI structure and config-file deployment choice.
+
+### How To Run
+
+Open `manage/index.html` after importing `database/schema.sql` and `database/seed.sql`.
+
+### How To Test
+
+- `Get-ChildItem -Recurse -Filter *.php | ForEach-Object { php -l $_.FullName }`
+- `node --check manage/manage.js`
+- `php tests/validation_test.php`
+- `php tests/text_quality_test.php`
+- `php tests/api_smoke_test.php`
+
+Observed on 2026-05-12:
+
+- PHP syntax checks passed for all PHP files.
+- `node --check manage/manage.js` passed.
+- `validation_test.php` passed.
+- `text_quality_test.php` passed.
+- `api_smoke_test.php` passed.
+
+### Known Issues And Decisions
+
+- Removing a globally allowed student is blocked once participations exist, to avoid deleting grading-relevant records through allowlist cleanup.
+- Staff authentication remains deferred and is still the largest production security gap.
+- Browser QA on the deployed MySQL-backed UI is still needed.
+
+### Next Steps
+
+- Test the redesigned `/manage` flow on the deployment.
+- Add staff authentication before broader deployment.

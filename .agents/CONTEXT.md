@@ -107,6 +107,7 @@ The management UI should support:
 
 - Add allowed students.
 - Bulk-import allowed students.
+- View and remove allowed students who have no participations.
 - Create and rename experiments.
 - Delete setup experiments when needed.
 - Open and close experiments.
@@ -128,7 +129,7 @@ The management UI should support:
 - Toggle `Angerechnet`.
 - Reset participations and release access data when desired.
 
-The current V2 staff API is intentionally centralized in `api/manage/actions.php`, with dashboard data from `api/manage/dashboard.php`.
+The current V2 staff API is intentionally centralized in `api/manage/actions.php`, with dashboard data from `api/manage/dashboard.php`. The staff UI is organized into an experiment overview, a dedicated global allowlist view, an experiment editing view, and an experiment-specific grading view. Experiment states are shown in a top workflow strip. The global allowlist is reached from the editable student-count badge in the navbar instead of being part of the experiment hierarchy, and the navbar brand returns to the experiment overview.
 
 ## Student UI Responsibilities
 
@@ -152,7 +153,7 @@ The student UI should:
 - `database/seed_examples.sql`: self-contained demo/dev data with sample students, experiments, access fields, access pools, and slots.
 - `database/reset.sql`: resets runtime V2 state but keeps configured experiments, fields, pools, slots, and allowed students.
 - `database/live_database.sql`: historical live dump from the V1 app. Treat it as migration context only; do not edit it unless the user explicitly asks for migration work.
-- `config/config.php`: environment-based DB configuration. Do not add production credentials here.
+- `config/config.php`: deployment DB configuration plus `EXPERIMENT_DB_DSN` test override.
 - `api/_bootstrap.php`: shared API helpers and domain read helpers.
 - `api/student_overview.php`: student overview endpoint.
 - `api/claim.php`: claim or retrieve participation access.
@@ -167,17 +168,7 @@ The student UI should:
 
 Deploy V2 into an empty database unless doing explicit migration work.
 
-Database configuration is via environment variables:
-
-- `EXPERIMENT_DB_HOST`
-- `EXPERIMENT_DB_PORT`
-- `EXPERIMENT_DB_NAME`
-- `EXPERIMENT_DB_USER`
-- `EXPERIMENT_DB_PASSWORD`
-- `EXPERIMENT_DB_CHARSET`
-- `EXPERIMENT_DB_DSN` optional override, mostly for tests
-
-Production secrets must not be committed. An old version of this repository had hardcoded production credentials; do not reintroduce them.
+Database deployment settings are currently stored in `config/config.php` by explicit project choice. `EXPERIMENT_DB_DSN` remains available as an optional override, mostly for tests.
 
 ## Tests And Local Limitations
 
@@ -187,15 +178,15 @@ Run:
 - `php tests/text_quality_test.php`
 - `php tests/api_smoke_test.php`
 
-The API smoke test uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable.
+The API smoke test uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable. When SQLite support is available, it covers student claim/retrieval, slot choice capacity, management setup, allowlist removal guards, eligibility assignment, bundled pool import, confirmation, appointment retrieval, participation reset, and randomization.
 
 On the current development machine as last observed:
 
 - PHP syntax checks passed.
 - `validation_test.php` passed.
 - `text_quality_test.php` passed.
-- `api_smoke_test.php` skipped because no PDO drivers were installed.
-- Node.js was not installed, so JavaScript syntax checking could not be run locally.
+- `api_smoke_test.php` passed after enabling `pdo_sqlite` in the active PHP `php.ini`.
+- `node --check manage/manage.js` passed.
 
 ## Known Deferred Work
 

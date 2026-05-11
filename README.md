@@ -8,7 +8,7 @@ PHP/MySQL web app for assigning experiment access information to ZHAW students a
 - `assets/`: student CSS and JavaScript
 - `manage/`: staff UI
 - `api/`: student and staff JSON endpoints
-- `config/config.php`: database configuration from environment variables
+- `config/config.php`: deployment database configuration
 - `database/schema.sql`: V2 schema
 - `database/seed.sql`: real course allowlist only
 - `database/seed_examples.sql`: optional sample V2 experiments and access data
@@ -30,17 +30,7 @@ mysql -u USER -p DATABASE < database/seed.sql
 
 ## Configuration
 
-Set these environment variables on the web host:
-
-- `EXPERIMENT_DB_HOST`
-- `EXPERIMENT_DB_PORT`
-- `EXPERIMENT_DB_NAME`
-- `EXPERIMENT_DB_USER`
-- `EXPERIMENT_DB_PASSWORD`
-- `EXPERIMENT_DB_CHARSET` optional, default `utf8mb4`
-- `EXPERIMENT_DB_DSN` optional override, useful for tests
-
-No production credentials are stored in the repository.
+Database deployment settings are stored in `config/config.php`. `EXPERIMENT_DB_DSN` remains available as an optional override for tests, especially the SQLite smoke test.
 
 ## Student Flow
 
@@ -61,6 +51,8 @@ It supports:
 
 - adding allowed students
 - bulk-importing allowed students
+- opening the dedicated global allowlist view from the editable student-count badge
+- viewing and removing allowed students without participations
 - creating and renaming experiments
 - deleting setup experiments
 - opening and closing experiments
@@ -76,9 +68,15 @@ It supports:
 - creating time slots with capacity
 - viewing slot choices by slot
 - deleting unused time slots
+- opening experiment-specific editing from the overview
+- opening experiment-specific grading from the overview
 - setting appointment text
 - resetting participations
 - toggling `Angerechnet`
+- navigating overview, experiment setup, and grading through the top workflow strip
+- returning to the experiment overview through the navbar brand
+
+Access fields that already back assigned runtime values cannot be deleted or structurally changed. Existing slot capacity cannot be reduced below the number of submitted slot choices.
 
 Staff authentication is intentionally not implemented yet; the page relies on a hidden URL.
 
@@ -91,3 +89,4 @@ php tests/api_smoke_test.php
 ```
 
 `api_smoke_test.php` uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable.
+When SQLite support is available, it covers the student claim/retrieval flow, slot capacity enforcement, management setup actions, allowlist removal guards, eligibility assignment, access-pool import, confirmation, appointment retrieval, reset, and randomization.

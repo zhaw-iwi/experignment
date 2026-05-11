@@ -38,7 +38,7 @@ function parse_table_lines(string $raw): array
 
     $headers = array_map(
         static fn (string $header): string => strtolower(trim($header)),
-        str_getcsv($headerLine, $delimiter)
+        str_getcsv($headerLine, $delimiter, '"', '\\')
     );
 
     $rows = [];
@@ -46,7 +46,7 @@ function parse_table_lines(string $raw): array
         if (trim($line) === '') {
             continue;
         }
-        $values = str_getcsv($line, $delimiter);
+        $values = str_getcsv($line, $delimiter, '"', '\\');
         $row = [];
         foreach ($headers as $index => $header) {
             $row[$header] = trim((string) ($values[$index] ?? ''));
@@ -139,6 +139,32 @@ function delete_by_id(PDO $pdo, string $table, int $id): bool
     return $statement->rowCount() > 0;
 }
 
+function access_field_has_runtime_values(PDO $pdo, int $fieldId): bool
+{
+    $assignedPoolValues = count_rows(
+        $pdo,
+        'SELECT COUNT(*) AS row_count
+         FROM access_pool_values apv
+         INNER JOIN access_pool_rows apr ON apr.id = apv.pool_row_id
+         WHERE apv.field_id = :field_id
+           AND apr.is_assigned = 1',
+        ['field_id' => $fieldId]
+    );
+    if ($assignedPoolValues > 0) {
+        return true;
+    }
+
+    $manualValues = count_rows(
+        $pdo,
+        'SELECT COUNT(*) AS row_count
+         FROM participation_field_values
+         WHERE field_id = :field_id',
+        ['field_id' => $fieldId]
+    );
+
+    return $manualValues > 0;
+}
+
 function imported_student_emails(string $raw): array
 {
     if (preg_match_all('/[A-Z0-9._%+\-]+@students\.zhaw\.ch/i', $raw, $matches) !== 1) {
@@ -192,6 +218,41 @@ try {
             'created' => $created,
             'skipped' => $skipped,
             'totalValid' => count($emails),
+        ]);
+    }
+
+    if ($action === 'delete_allowed_student') {
+        $email = normalize_student_email((string) ($payload['email'] ?? ''));
+        if (!is_valid_student_email($email)) {
+            fail(422, 'INVALID_EMAIL', 'Bitte geben Sie eine gültige Studierenden-E-Mail-Adresse ein.');
+        }
+
+        if (!is_allowed_student_email($pdo, $email)) {
+            fail(404, 'ALLOWED_STUDENT_NOT_FOUND', 'Diese E-Mail-Adresse ist nicht in der Zulassungsliste.');
+        }
+
+        $participationCount = count_rows(
+            $pdo,
+            'SELECT COUNT(*) AS row_count FROM participations WHERE student_email = :student_email',
+            ['student_email' => $email]
+        );
+        if ($participationCount > 0) {
+            fail(409, 'ALLOWED_STUDENT_HAS_PARTICIPATIONS', 'Diese E-Mail-Adresse hat bereits Zuweisungen und kann nicht aus der globalen Liste entfernt werden.');
+        }
+
+        $eligibilityCount = count_rows(
+            $pdo,
+            'SELECT COUNT(*) AS row_count FROM experiment_eligibilities WHERE student_email = :student_email',
+            ['student_email' => $email]
+        );
+
+        $delete = $pdo->prepare('DELETE FROM allowed_students WHERE student_email = :student_email');
+        $delete->execute(['student_email' => $email]);
+
+        json_response(200, [
+            'email' => $email,
+            'deleted' => true,
+            'removedEligibilityCount' => $eligibilityCount,
         ]);
     }
 
@@ -367,6 +428,25 @@ try {
             fail(422, 'INVALID_VALUE_SOURCE', 'Die Datenquelle ist ungültig.');
         }
 
+        $existingField = null;
+        if ($id !== null) {
+            $lookup = $pdo->prepare(
+                'SELECT *
+                 FROM access_fields
+                 WHERE id = :id
+                   AND experiment_id = :experiment_id
+                 LIMIT 1'
+            );
+            $lookup->execute([
+                'id' => $id,
+                'experiment_id' => $experimentId,
+            ]);
+            $existingField = $lookup->fetch();
+            if ($existingField === false) {
+                fail(404, 'FIELD_NOT_FOUND', 'Das Zugangsfeld wurde nicht gefunden.');
+            }
+        }
+
         $idFilter = $id === null ? '' : ' AND id <> :existing_id';
         if ($conditionId === null) {
             $duplicate = $pdo->prepare(
@@ -425,6 +505,19 @@ try {
             json_response(201, ['fieldId' => (int) $pdo->lastInsertId()]);
         }
 
+        if (
+            $existingField !== null
+            && access_field_has_runtime_values($pdo, $id)
+            && (
+                nullable_int($existingField['condition_id'] ?? null) !== $conditionId
+                || (string) $existingField['field_key'] !== $fieldKey
+                || (string) $existingField['value_type'] !== $valueType
+                || (string) $existingField['value_source'] !== $valueSource
+            )
+        ) {
+            fail(409, 'FIELD_RUNTIME_CONTRACT_LOCKED', 'Dieses Zugangsfeld wird bereits in Zuweisungen verwendet. Bedingung, Schlüssel, Typ und Quelle können nicht mehr geändert werden.');
+        }
+
         $statement = $pdo->prepare(
             'UPDATE access_fields
              SET condition_id = :condition_id,
@@ -455,6 +548,10 @@ try {
 
     if ($action === 'delete_access_field') {
         $fieldId = required_int($payload['fieldId'] ?? null, 'INVALID_FIELD', 'Bitte wählen Sie ein Zugangsfeld aus.');
+        if (access_field_has_runtime_values($pdo, $fieldId)) {
+            fail(409, 'FIELD_HAS_RUNTIME_VALUES', 'Dieses Zugangsfeld wird bereits in Zuweisungen verwendet und kann nicht gelöscht werden.');
+        }
+
         if (!delete_by_id($pdo, 'access_fields', $fieldId)) {
             fail(404, 'FIELD_NOT_FOUND', 'Das Zugangsfeld wurde nicht gefunden.');
         }
@@ -564,6 +661,32 @@ try {
         }
         if ($label === '') {
             fail(422, 'INVALID_SLOT_LABEL', 'Bitte geben Sie eine Bezeichnung für den Zeitslot ein.');
+        }
+
+        if ($id !== null) {
+            $lookup = $pdo->prepare(
+                'SELECT id
+                 FROM time_slots
+                 WHERE id = :id
+                   AND experiment_id = :experiment_id
+                 LIMIT 1'
+            );
+            $lookup->execute([
+                'id' => $id,
+                'experiment_id' => $experimentId,
+            ]);
+            if ($lookup->fetch() === false) {
+                fail(404, 'SLOT_NOT_FOUND', 'Der Zeitslot wurde nicht gefunden.');
+            }
+
+            $choiceCount = count_rows(
+                $pdo,
+                'SELECT COUNT(*) AS row_count FROM slot_choices WHERE time_slot_id = :time_slot_id',
+                ['time_slot_id' => $id]
+            );
+            if ($choiceCount > $capacity) {
+                fail(409, 'SLOT_CAPACITY_TOO_LOW', 'Die Kapazität darf nicht unter die Anzahl bestehender Auswahlen fallen.');
+            }
         }
 
         if ($id === null) {

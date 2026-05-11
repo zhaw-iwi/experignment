@@ -84,6 +84,13 @@ try {
     if ($pdo->inTransaction()) {
         $pdo->rollBack();
     }
+
+    if (fetch_slot_choice($pdo, (int) $participation['id']) !== null) {
+        json_response(200, [
+            'overview' => student_overview($pdo, $email),
+        ]);
+    }
+
     fail(500, 'SLOT_CHOICE_FAILED', 'Der Zeitslot konnte nicht gespeichert werden.');
 }
 

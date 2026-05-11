@@ -1,15 +1,29 @@
 const state = {
     dashboard: null,
     selectedExperimentId: null,
+    view: "overview",
 };
 
 const dom = {
+    brandHomeButton: document.getElementById("brandHomeButton"),
     allowedCount: document.getElementById("allowedCount"),
     reloadButton: document.getElementById("reloadButton"),
+    phaseStepper: document.getElementById("phaseStepper"),
+    pageTitle: document.getElementById("pageTitle"),
     messageArea: document.getElementById("messageArea"),
+    overviewView: document.getElementById("overviewView"),
+    allowedStudentsView: document.getElementById("allowedStudentsView"),
+    experimentView: document.getElementById("experimentView"),
+    gradingView: document.getElementById("gradingView"),
+    overviewExperimentCard: document.getElementById("overviewExperimentCard"),
     experimentList: document.getElementById("experimentList"),
     newExperimentButton: document.getElementById("newExperimentButton"),
+    allowedStudentsCard: document.getElementById("allowedStudentsCard"),
+    allowedStudentList: document.getElementById("allowedStudentList"),
+    experimentFormTitle: document.getElementById("experimentFormTitle"),
     experimentForm: document.getElementById("experimentForm"),
+    backToOverviewButton: document.getElementById("backToOverviewButton"),
+    cancelExperimentButton: document.getElementById("cancelExperimentButton"),
     deleteExperimentButton: document.getElementById("deleteExperimentButton"),
     experimentId: document.getElementById("experimentId"),
     experimentName: document.getElementById("experimentName"),
@@ -19,6 +33,7 @@ const dom = {
     sortOrder: document.getElementById("sortOrder"),
     isOpen: document.getElementById("isOpen"),
     requiresTimeSlot: document.getElementById("requiresTimeSlot"),
+    conditionPanel: document.getElementById("conditionPanel"),
     conditionList: document.getElementById("conditionList"),
     conditionForm: document.getElementById("conditionForm"),
     conditionId: document.getElementById("conditionId"),
@@ -28,6 +43,7 @@ const dom = {
     allowEmail: document.getElementById("allowEmail"),
     bulkAllowForm: document.getElementById("bulkAllowForm"),
     bulkAllowEmails: document.getElementById("bulkAllowEmails"),
+    accessPanel: document.getElementById("accessPanel"),
     fieldList: document.getElementById("fieldList"),
     fieldForm: document.getElementById("fieldForm"),
     fieldId: document.getElementById("fieldId"),
@@ -44,6 +60,7 @@ const dom = {
     poolTable: document.getElementById("poolTable"),
     poolCounts: document.getElementById("poolCounts"),
     poolRowList: document.getElementById("poolRowList"),
+    eligibilityPanel: document.getElementById("eligibilityPanel"),
     assignForm: document.getElementById("assignForm"),
     assignEmail: document.getElementById("assignEmail"),
     assignConditionId: document.getElementById("assignConditionId"),
@@ -51,6 +68,7 @@ const dom = {
     randomSeed: document.getElementById("randomSeed"),
     allocationFields: document.getElementById("allocationFields"),
     eligibilityList: document.getElementById("eligibilityList"),
+    slotPanel: document.getElementById("slotPanel"),
     slotList: document.getElementById("slotList"),
     slotForm: document.getElementById("slotForm"),
     slotId: document.getElementById("slotId"),
@@ -61,7 +79,8 @@ const dom = {
     slotSortOrder: document.getElementById("slotSortOrder"),
     slotIsActive: document.getElementById("slotIsActive"),
     slotChoiceList: document.getElementById("slotChoiceList"),
-    participationFilter: document.getElementById("participationFilter"),
+    gradingTitle: document.getElementById("gradingTitle"),
+    backFromGradingButton: document.getElementById("backFromGradingButton"),
     participationRows: document.getElementById("participationRows"),
 };
 
@@ -72,11 +91,24 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 function wireEvents() {
-    dom.reloadButton.addEventListener("click", loadDashboard);
+    dom.brandHomeButton.addEventListener("click", () => {
+        openOverview();
+    });
+    dom.reloadButton.addEventListener("click", () => loadDashboard());
+    dom.allowedCount.addEventListener("click", () => {
+        openAllowedStudents();
+    });
     dom.newExperimentButton.addEventListener("click", () => {
-        state.selectedExperimentId = null;
-        clearExperimentForm();
-        renderAll();
+        openNewExperiment();
+    });
+    dom.backToOverviewButton.addEventListener("click", () => {
+        openOverview();
+    });
+    dom.cancelExperimentButton.addEventListener("click", () => {
+        openOverview();
+    });
+    dom.backFromGradingButton.addEventListener("click", () => {
+        openOverview();
     });
 
     dom.experimentForm.addEventListener("submit", async (event) => {
@@ -92,6 +124,7 @@ function wireEvents() {
             requiresTimeSlot: dom.requiresTimeSlot.checked,
         });
         state.selectedExperimentId = payload.experimentId;
+        state.view = "experiment";
         await loadDashboard("Experiment gespeichert.");
     });
 
@@ -101,19 +134,14 @@ function wireEvents() {
             showMessage("Bitte wählen Sie zuerst ein Experiment aus.", "warning");
             return;
         }
-        if (!window.confirm(`Experiment "${experiment.name}" mit allen zugehörigen Daten löschen?`)) {
-            return;
-        }
-        await postAction("delete_experiment", { experimentId: experiment.id });
-        state.selectedExperimentId = null;
-        await loadDashboard("Experiment gelöscht.");
+        await deleteExperiment(experiment);
     });
 
     dom.conditionForm.addEventListener("submit", async (event) => {
         event.preventDefault();
         const experiment = selectedExperiment();
         if (!experiment) {
-            showMessage("Bitte wählen Sie zuerst ein Experiment aus.", "warning");
+            showMessage("Bitte speichern Sie zuerst das Experiment.", "warning");
             return;
         }
         await postAction("save_condition", {
@@ -148,7 +176,7 @@ function wireEvents() {
         event.preventDefault();
         const experiment = selectedExperiment();
         if (!experiment) {
-            showMessage("Bitte wählen Sie zuerst ein Experiment aus.", "warning");
+            showMessage("Bitte speichern Sie zuerst das Experiment.", "warning");
             return;
         }
         await postAction("save_access_field", {
@@ -171,7 +199,7 @@ function wireEvents() {
         event.preventDefault();
         const experiment = selectedExperiment();
         if (!experiment) {
-            showMessage("Bitte wählen Sie zuerst ein Experiment aus.", "warning");
+            showMessage("Bitte speichern Sie zuerst das Experiment.", "warning");
             return;
         }
         const payload = await postAction("import_pool_rows", {
@@ -187,7 +215,7 @@ function wireEvents() {
         event.preventDefault();
         const experiment = selectedExperiment();
         if (!experiment) {
-            showMessage("Bitte wählen Sie zuerst ein Experiment aus.", "warning");
+            showMessage("Bitte speichern Sie zuerst das Experiment.", "warning");
             return;
         }
         await postAction("assign_student", {
@@ -203,7 +231,7 @@ function wireEvents() {
         event.preventDefault();
         const experiment = selectedExperiment();
         if (!experiment) {
-            showMessage("Bitte wählen Sie zuerst ein Experiment aus.", "warning");
+            showMessage("Bitte speichern Sie zuerst das Experiment.", "warning");
             return;
         }
         const allocations = Array.from(dom.allocationFields.querySelectorAll("input[data-condition-id]")).map((input) => ({
@@ -222,7 +250,7 @@ function wireEvents() {
         event.preventDefault();
         const experiment = selectedExperiment();
         if (!experiment) {
-            showMessage("Bitte wählen Sie zuerst ein Experiment aus.", "warning");
+            showMessage("Bitte speichern Sie zuerst das Experiment.", "warning");
             return;
         }
         await postAction("save_slot", {
@@ -238,21 +266,15 @@ function wireEvents() {
         clearSlotForm();
         await loadDashboard("Zeitslot gespeichert.");
     });
-
-    dom.participationFilter.addEventListener("change", () => {
-        renderParticipations();
-    });
 }
 
 async function loadDashboard(successMessage = "") {
     try {
         const dashboard = await apiRequest("../api/manage/dashboard.php", { method: "GET" });
         state.dashboard = dashboard;
-        if (!state.selectedExperimentId && dashboard.experiments.length > 0) {
-            state.selectedExperimentId = dashboard.experiments[0].id;
-        }
+        normalizeViewState();
         renderAll();
-        if (successMessage) {
+        if (typeof successMessage === "string" && successMessage !== "") {
             showMessage(successMessage, "success");
         } else {
             clearMessage();
@@ -262,11 +284,33 @@ async function loadDashboard(successMessage = "") {
     }
 }
 
+function normalizeViewState() {
+    const experiment = selectedExperiment();
+    if (state.view === "experiment" && state.selectedExperimentId === null) {
+        return;
+    }
+    if ((state.view === "experiment" || state.view === "grading") && !experiment) {
+        state.view = "overview";
+        state.selectedExperimentId = null;
+    }
+}
+
 function renderAll() {
-    const dashboard = state.dashboard || { experiments: [], participations: [], allowedStudentCount: 0 };
-    dom.allowedCount.textContent = `${dashboard.allowedStudentCount || 0} Studierende`;
+    const dashboard = state.dashboard || {
+        allowedStudentCount: 0,
+        allowedStudents: [],
+        experiments: [],
+        participations: [],
+    };
+
+    renderAllowedCount(dashboard.allowedStudentCount || 0);
+    renderViews();
+    renderPageTitle();
+    renderPhaseStepper();
     renderExperimentList();
+    renderAllowedStudentList();
     renderExperimentForm();
+    updateExperimentDependentPanels();
     renderConditionSection();
     renderFieldSection();
     renderPoolCounts();
@@ -275,43 +319,317 @@ function renderAll() {
     renderEligibilityList();
     renderSlotSection();
     renderSlotChoices();
-    renderParticipationFilter();
-    renderParticipations();
+    renderGrading();
+}
+
+function renderAllowedCount(count) {
+    const icon = document.createElement("i");
+    icon.className = "bi bi-pencil-square";
+    icon.setAttribute("aria-hidden", "true");
+
+    const text = document.createElement("span");
+    text.textContent = `${count} Studierende`;
+
+    dom.allowedCount.replaceChildren(icon, text);
+    dom.allowedCount.setAttribute("aria-label", `${count} zugelassene Studierende bearbeiten`);
+}
+
+function renderViews() {
+    dom.overviewView.classList.toggle("d-none", state.view !== "overview");
+    dom.allowedStudentsView.classList.toggle("d-none", state.view !== "allowed");
+    dom.experimentView.classList.toggle("d-none", state.view !== "experiment");
+    dom.gradingView.classList.toggle("d-none", state.view !== "grading");
+}
+
+function renderPageTitle() {
+    const experiment = selectedExperiment();
+    if (state.view === "experiment") {
+        dom.pageTitle.textContent = experiment ? experiment.name : "Neues Experiment";
+        return;
+    }
+    if (state.view === "grading") {
+        dom.pageTitle.textContent = experiment ? `${experiment.name} Anrechnung` : "Anrechnung";
+        return;
+    }
+    if (state.view === "allowed") {
+        dom.pageTitle.textContent = "Zugelassene Studierende";
+        return;
+    }
+    dom.pageTitle.textContent = "Experimente";
+}
+
+function renderPhaseStepper() {
+    dom.phaseStepper.innerHTML = "";
+    dom.phaseStepper.classList.toggle("is-single", state.view === "allowed");
+
+    if (state.view === "allowed") {
+        addPhaseStep({
+            number: 0,
+            title: "Zugelassene Studierende",
+            meta: "Globale Liste aller E-Mail-Adressen, die Experimente sehen können.",
+            current: true,
+            disabled: false,
+            onClick: null,
+        });
+        return;
+    }
+
+    const experiment = selectedExperiment();
+    const experimentTitle = experiment ? experiment.name : "Experiment bearbeiten";
+    const gradingAction = experiment ? () => openGrading(experiment.id) : null;
+
+    addPhaseStep({
+        number: 1,
+        title: "Experimente",
+        meta: "Liste und neues Experiment",
+        current: state.view === "overview",
+        disabled: false,
+        onClick: state.view === "overview" ? null : openOverview,
+    });
+    addPhaseStep({
+        number: 2,
+        title: state.view === "experiment" && !experiment ? "Neues Experiment" : experimentTitle,
+        meta: state.view === "overview" ? "Experiment wählen oder neu erstellen" : experiment ? "Setup bearbeiten" : "Erst Grunddaten speichern",
+        current: state.view === "experiment",
+        disabled: state.view === "overview",
+        onClick: experiment && state.view !== "experiment" ? () => openExperiment(experiment.id) : null,
+    });
+    addPhaseStep({
+        number: 3,
+        title: "Anrechnung",
+        meta: experiment ? "Teilnahmen verwalten" : "Nach dem Speichern verfügbar",
+        current: state.view === "grading",
+        disabled: !experiment,
+        onClick: state.view !== "grading" ? gradingAction : null,
+    });
+}
+
+function addPhaseStep({ number, title, meta, current, disabled, onClick }) {
+    const item = document.createElement("li");
+    item.className = "mc-step";
+    if (disabled) {
+        item.classList.add("is-disabled");
+        item.setAttribute("aria-disabled", "true");
+    } else {
+        item.classList.add("is-open");
+    }
+    if (current) {
+        item.classList.add("is-current");
+        item.setAttribute("aria-current", "step");
+    }
+    if (onClick && !disabled) {
+        item.classList.add("is-clickable");
+        item.tabIndex = 0;
+        item.setAttribute("role", "button");
+        item.addEventListener("click", onClick);
+        item.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onClick();
+            }
+        });
+    }
+
+    const numberNode = document.createElement("span");
+    numberNode.className = "mc-step-number";
+    numberNode.textContent = String(number);
+
+    const text = document.createElement("span");
+    const titleNode = document.createElement("span");
+    titleNode.className = "mc-step-title";
+    titleNode.textContent = title;
+    const metaNode = document.createElement("span");
+    metaNode.className = "mc-step-meta";
+    metaNode.textContent = meta;
+    text.append(titleNode, metaNode);
+
+    item.append(numberNode, text);
+    dom.phaseStepper.appendChild(item);
+}
+
+function openAllowedStudents() {
+    state.view = "allowed";
+    state.selectedExperimentId = null;
+    renderAll();
+}
+
+function openOverview() {
+    state.view = "overview";
+    state.selectedExperimentId = null;
+    renderAll();
+}
+
+function openNewExperiment() {
+    state.view = "experiment";
+    state.selectedExperimentId = null;
+    clearExperimentForm();
+    clearExperimentDependentForms();
+    renderAll();
+    dom.experimentName.focus();
+}
+
+function openExperiment(experimentId) {
+    state.view = "experiment";
+    state.selectedExperimentId = experimentId;
+    clearExperimentDependentForms();
+    renderAll();
+}
+
+function openGrading(experimentId) {
+    state.view = "grading";
+    state.selectedExperimentId = experimentId;
+    renderAll();
 }
 
 function renderExperimentList() {
     dom.experimentList.innerHTML = "";
-    for (const experiment of state.dashboard.experiments || []) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = `list-group-item list-group-item-action ${experiment.id === state.selectedExperimentId ? "active" : ""}`;
-        button.innerHTML = `
-            <div class="d-flex justify-content-between gap-2">
-                <strong>${escapeHtml(experiment.name)}</strong>
-                <span class="badge ${experiment.isOpen ? "text-bg-success" : "text-bg-secondary"}">${experiment.isOpen ? "offen" : "geschlossen"}</span>
-            </div>
-            <div class="small text-secondary">${experiment.counts.participations} Zuweisungen, ${experiment.counts.confirmed} angerechnet</div>
-        `;
-        button.addEventListener("click", () => {
-            state.selectedExperimentId = experiment.id;
-            clearConditionForm();
-            clearFieldForm();
-            clearSlotForm();
-            renderAll();
+    const experiments = state.dashboard?.experiments || [];
+    if (experiments.length === 0) {
+        dom.experimentList.appendChild(emptyListGroupItem("Keine Experimente vorhanden."));
+        return;
+    }
+
+    for (const experiment of experiments) {
+        const item = document.createElement("div");
+        item.className = "list-group-item";
+
+        const row = document.createElement("div");
+        row.className = "d-flex justify-content-between gap-3 align-items-start";
+
+        const text = document.createElement("div");
+        text.className = "min-width-0";
+        const title = document.createElement("div");
+        title.className = "d-flex flex-wrap gap-2 align-items-center";
+        const strong = document.createElement("strong");
+        strong.textContent = experiment.name;
+        const openBadge = document.createElement("span");
+        openBadge.className = `badge ${experiment.isOpen ? "text-bg-success" : "text-bg-secondary"}`;
+        openBadge.textContent = experiment.isOpen ? "offen" : "geschlossen";
+        title.append(strong, openBadge);
+
+        const meta = document.createElement("div");
+        meta.className = "small text-secondary mt-1";
+        meta.textContent = `${experiment.counts.participations} Zuweisungen, ${experiment.counts.confirmed} angerechnet`;
+        text.append(title, meta);
+
+        const dropdown = experimentActionDropdown(experiment);
+        row.append(text, dropdown);
+        item.appendChild(row);
+        dom.experimentList.appendChild(item);
+    }
+}
+
+function experimentActionDropdown(experiment) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "dropdown flex-shrink-0";
+
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "btn btn-outline-secondary btn-sm icon-menu";
+    toggle.setAttribute("data-bs-toggle", "dropdown");
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.setAttribute("aria-label", `${experiment.name} Aktionen`);
+    toggle.textContent = "⋮";
+
+    const menu = document.createElement("ul");
+    menu.className = "dropdown-menu dropdown-menu-end";
+    menu.appendChild(dropdownItem("Bearbeiten", () => openExperiment(experiment.id)));
+    menu.appendChild(dropdownItem("Anrechnung", () => openGrading(experiment.id)));
+    menu.appendChild(dropdownDivider());
+    menu.appendChild(dropdownItem("Löschen", () => deleteExperiment(experiment), "text-danger"));
+
+    wrapper.append(toggle, menu);
+    return wrapper;
+}
+
+function dropdownItem(label, onClick, extraClass = "") {
+    const listItem = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `dropdown-item ${extraClass}`;
+    button.textContent = label;
+    button.addEventListener("click", onClick);
+    listItem.appendChild(button);
+    return listItem;
+}
+
+function dropdownDivider() {
+    const listItem = document.createElement("li");
+    const divider = document.createElement("hr");
+    divider.className = "dropdown-divider";
+    listItem.appendChild(divider);
+    return listItem;
+}
+
+async function deleteExperiment(experiment) {
+    if (!window.confirm(`Experiment "${experiment.name}" mit allen zugehörigen Daten löschen?`)) {
+        return;
+    }
+    await postAction("delete_experiment", { experimentId: experiment.id });
+    state.selectedExperimentId = null;
+    state.view = "overview";
+    await loadDashboard("Experiment gelöscht.");
+}
+
+function renderAllowedStudentList() {
+    dom.allowedStudentList.innerHTML = "";
+    const students = state.dashboard?.allowedStudents || [];
+    if (students.length === 0) {
+        dom.allowedStudentList.appendChild(emptyListGroupItem("Keine Studierenden zugelassen."));
+        return;
+    }
+
+    for (const student of students) {
+        const item = document.createElement("div");
+        item.className = "list-group-item";
+        const row = document.createElement("div");
+        row.className = "d-flex justify-content-between gap-3 align-items-start";
+
+        const text = document.createElement("div");
+        text.className = "min-width-0";
+        const email = document.createElement("strong");
+        email.textContent = student.email;
+        const meta = document.createElement("div");
+        meta.className = "small text-secondary mt-1";
+        meta.textContent = `${student.participationCount} Zuweisungen, ${student.confirmedCount} angerechnet, ${student.eligibilityCount} Freigaben`;
+        text.append(email, meta);
+
+        const remove = smallButton("Entfernen", "outline-danger");
+        remove.disabled = student.participationCount > 0;
+        remove.title = student.participationCount > 0
+            ? "Studierende mit Zuweisungen können nicht aus der globalen Liste entfernt werden."
+            : "Aus globaler Zulassungsliste entfernen";
+        remove.addEventListener("click", async () => {
+            if (!window.confirm(`${student.email} aus der globalen Zulassungsliste entfernen?`)) {
+                return;
+            }
+            await postAction("delete_allowed_student", { email: student.email });
+            await loadDashboard("E-Mail aus der Zulassungsliste entfernt.");
         });
-        dom.experimentList.appendChild(button);
+
+        row.append(text, remove);
+        item.appendChild(row);
+        dom.allowedStudentList.appendChild(item);
     }
 }
 
 function renderExperimentForm() {
-    const experiment = selectedExperiment();
-    if (!experiment) {
-        clearExperimentForm();
-        dom.deleteExperimentButton.disabled = true;
+    if (state.view !== "experiment") {
         return;
     }
 
-    dom.deleteExperimentButton.disabled = false;
+    const experiment = selectedExperiment();
+    if (!experiment) {
+        if (dom.experimentId.value !== "") {
+            clearExperimentForm();
+        }
+        dom.experimentFormTitle.textContent = "Neues Experiment";
+        setExperimentActionState(true);
+        return;
+    }
+
+    dom.experimentFormTitle.textContent = "Experiment bearbeiten";
+    setExperimentActionState(false);
     dom.experimentId.value = experiment.id;
     dom.experimentName.value = experiment.name || "";
     dom.experimentDescription.value = experiment.description || "";
@@ -320,6 +638,19 @@ function renderExperimentForm() {
     dom.sortOrder.value = experiment.sortOrder;
     dom.isOpen.checked = experiment.isOpen;
     dom.requiresTimeSlot.checked = experiment.requiresTimeSlot;
+}
+
+function updateExperimentDependentPanels() {
+    const hasSavedExperiment = selectedExperiment() !== null;
+    for (const panel of [dom.conditionPanel, dom.accessPanel, dom.eligibilityPanel, dom.slotPanel]) {
+        panel.classList.toggle("d-none", !hasSavedExperiment || state.view !== "experiment");
+    }
+}
+
+function setExperimentActionState(isNewExperiment) {
+    dom.cancelExperimentButton.classList.toggle("d-none", !isNewExperiment);
+    dom.deleteExperimentButton.classList.toggle("d-none", isNewExperiment);
+    dom.deleteExperimentButton.disabled = isNewExperiment;
 }
 
 function renderConditionSection() {
@@ -576,30 +907,23 @@ function renderSlotChoices() {
     }
 }
 
-function renderParticipationFilter() {
-    const current = dom.participationFilter.value;
-    dom.participationFilter.innerHTML = `<option value="">Alle Experimente</option>`;
-    for (const experiment of state.dashboard.experiments || []) {
-        const option = document.createElement("option");
-        option.value = experiment.id;
-        option.textContent = experiment.name;
-        dom.participationFilter.appendChild(option);
-    }
-    dom.participationFilter.value = current;
-}
-
-function renderParticipations() {
-    const filter = valueOrNull(dom.participationFilter.value);
+function renderGrading() {
+    const experiment = selectedExperiment();
     dom.participationRows.innerHTML = "";
+    dom.gradingTitle.textContent = experiment ? `${experiment.name} Anrechnung` : "Anrechnung";
+
+    if (state.view !== "grading" || !experiment) {
+        return;
+    }
+
     const rows = (state.dashboard.participations || []).filter((participation) => {
-        return filter === null || participation.experimentId === filter;
+        return participation.experimentId === experiment.id;
     });
 
     for (const participation of rows) {
         const row = document.createElement("tr");
         row.innerHTML = `
             <td>${escapeHtml(participation.email)}</td>
-            <td>${escapeHtml(participation.experimentName)}</td>
             <td>${escapeHtml(participation.conditionName || "-")}</td>
             <td>${escapeHtml(participation.slotLabel || "-")}</td>
             <td></td>
@@ -607,7 +931,7 @@ function renderParticipations() {
             <td class="text-end"></td>
         `;
 
-        const appointmentCell = row.children[4];
+        const appointmentCell = row.children[3];
         const appointmentGroup = document.createElement("div");
         appointmentGroup.className = "input-group input-group-sm";
         const input = document.createElement("input");
@@ -628,7 +952,7 @@ function renderParticipations() {
         appointmentGroup.append(input, save);
         appointmentCell.appendChild(appointmentGroup);
 
-        const actions = row.children[6];
+        const actions = row.children[5];
         const confirm = smallButton(participation.confirmed ? "Entfernen" : "Anrechnen", participation.confirmed ? "outline-secondary" : "success");
         confirm.addEventListener("click", async () => {
             await postAction("toggle_confirmation", { participationId: participation.id });
@@ -653,9 +977,9 @@ function renderParticipations() {
     if (rows.length === 0) {
         const row = document.createElement("tr");
         const cell = document.createElement("td");
-        cell.colSpan = 7;
+        cell.colSpan = 6;
         cell.className = "text-secondary py-3";
-        cell.textContent = "Keine Zuweisungen vorhanden.";
+        cell.textContent = "Keine Zuweisungen für dieses Experiment vorhanden.";
         row.appendChild(cell);
         dom.participationRows.appendChild(row);
     }
@@ -666,6 +990,7 @@ function selectedExperiment() {
 }
 
 function clearExperimentForm() {
+    dom.experimentFormTitle.textContent = "Neues Experiment";
     dom.experimentId.value = "";
     dom.experimentName.value = "";
     dom.experimentDescription.value = "";
@@ -674,7 +999,15 @@ function clearExperimentForm() {
     dom.sortOrder.value = "0";
     dom.isOpen.checked = false;
     dom.requiresTimeSlot.checked = false;
-    dom.deleteExperimentButton.disabled = true;
+    setExperimentActionState(true);
+}
+
+function clearExperimentDependentForms() {
+    clearConditionForm();
+    clearFieldForm();
+    clearSlotForm();
+    dom.assignEmail.value = "";
+    dom.poolTable.value = "";
 }
 
 function clearConditionForm() {
@@ -739,6 +1072,13 @@ function compactItem(title, meta) {
 function emptyText(text) {
     const item = document.createElement("div");
     item.className = "text-secondary small";
+    item.textContent = text;
+    return item;
+}
+
+function emptyListGroupItem(text) {
+    const item = document.createElement("div");
+    item.className = "list-group-item text-secondary";
     item.textContent = text;
     return item;
 }

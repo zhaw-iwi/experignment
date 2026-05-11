@@ -87,6 +87,15 @@ try {
     if ($pdo->inTransaction()) {
         $pdo->rollBack();
     }
+
+    $participationAfterConflict = fetch_participation($pdo, $experimentId, $email);
+    if ($participationAfterConflict !== null) {
+        json_response(200, [
+            'reused' => true,
+            'overview' => student_overview($pdo, $email),
+        ]);
+    }
+
     fail(500, 'CLAIM_FAILED', 'Die Zuweisung konnte nicht gespeichert werden.');
 }
 

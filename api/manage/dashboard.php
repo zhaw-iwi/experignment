@@ -10,6 +10,30 @@ $pdo = db();
 
 $allowedCount = (int) ($pdo->query('SELECT COUNT(*) AS row_count FROM allowed_students')->fetch()['row_count'] ?? 0);
 
+$allowedStudentRows = $pdo->query(
+    'SELECT a.student_email, a.created_at,
+            COUNT(DISTINCT p.id) AS participation_count,
+            COUNT(DISTINCT CASE WHEN p.confirmed_at IS NOT NULL THEN p.id END) AS confirmed_count,
+            COUNT(DISTINCT ee.id) AS eligibility_count
+     FROM allowed_students a
+     LEFT JOIN participations p ON p.student_email = a.student_email
+     LEFT JOIN experiment_eligibilities ee ON ee.student_email = a.student_email
+     GROUP BY a.student_email, a.created_at
+     ORDER BY a.student_email ASC
+     LIMIT 2000'
+)->fetchAll();
+
+$allowedStudents = [];
+foreach ($allowedStudentRows as $row) {
+    $allowedStudents[] = [
+        'email' => $row['student_email'],
+        'createdAt' => $row['created_at'],
+        'participationCount' => (int) $row['participation_count'],
+        'confirmedCount' => (int) ($row['confirmed_count'] ?? 0),
+        'eligibilityCount' => (int) $row['eligibility_count'],
+    ];
+}
+
 $experiments = [];
 $experimentRows = $pdo->query(
     'SELECT *
@@ -293,6 +317,7 @@ foreach ($participationRows as $row) {
 
 json_response(200, [
     'allowedStudentCount' => $allowedCount,
+    'allowedStudents' => $allowedStudents,
     'experiments' => $experiments,
     'participations' => $participations,
 ]);

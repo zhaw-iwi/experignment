@@ -16,13 +16,18 @@ $htmlFiles = [
 $codeFiles = [
     __DIR__ . '/../assets/app.js',
     __DIR__ . '/../manage/manage.js',
+    __DIR__ . '/../api/student_overview.php',
     __DIR__ . '/../api/claim.php',
+    __DIR__ . '/../api/choose_slot.php',
     __DIR__ . '/../api/_bootstrap.php',
+    __DIR__ . '/../api/manage/actions.php',
+    __DIR__ . '/../api/manage/dashboard.php',
+    __DIR__ . '/../api/manage/search_students.php',
     __DIR__ . '/../api/manage/reset_student.php',
     __DIR__ . '/../api/manage/add_allowed_student.php',
 ];
 
-$transliterationPattern = '/\b[\p{L}]*(?:ae|oe|ue|Ae|Oe|Ue|AE|OE|UE)[\p{L}]*\b/u';
+$transliterationPattern = '/\b(?:fuer|gueltig|ungueltig|gewaehlt|waehlen|zurueck[\p{L}]*|loesch[\p{L}]*|hinzufueg[\p{L}]*|verfueg[\p{L}]*|oeffn[\p{L}]*|pruef[\p{L}]*|schliess[\p{L}]*|bestaetig[\p{L}]*|ausfuehr[\p{L}]*)\b/iu';
 $mojibakePattern = '/(?:Ã.|Â.|�|â€|â€™|â€œ|â€�|â€“|â€¦)/u';
 
 $violations = [];

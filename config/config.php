@@ -12,21 +12,10 @@ $dsn = is_string($dsnOverride) && $dsnOverride !== ''
     ? $dsnOverride
     : sprintf('mysql:host=%s;port=%s;dbname=%s;charset=%s', $host, $port, $name, $charset);
 
-$username = getenv('EXPERIMENT_DB_USER') ?: 'e93ud_aydemmel';
-$password = getenv('EXPERIMENT_DB_PASSWORD') ?: 'w@M90Aq26KU&k.%';
-
-if (is_string($dsnOverride) && $dsnOverride !== '') {
-    $dbUsername = $username !== false ? $username : '';
-    $dbPassword = $password !== false ? $password : '';
-} else {
-    $dbUsername = $username !== false ? $username : 'replace_me';
-    $dbPassword = $password !== false ? $password : 'replace_me';
-}
-
 $GLOBALS['APP_CONFIG'] = [
     'db' => [
         'dsn' => $dsn,
-        'username' => $dbUsername,
-        'password' => $dbPassword,
+        'username' => getenv('EXPERIMENT_DB_USER') ?: 'e93ud_aydemmel',
+        'password' => getenv('EXPERIMENT_DB_PASSWORD') ?: 'eS9B008$nRc!.',
     ],
 ];

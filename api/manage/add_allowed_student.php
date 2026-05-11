@@ -14,18 +14,7 @@ if (!is_valid_student_email($email)) {
 }
 
 $pdo = db();
-
-$existing = $pdo->prepare(
-    'SELECT id
-     FROM allowed_students
-     WHERE student_email = :student_email
-     LIMIT 1'
-);
-$existing->execute([
-    'student_email' => $email,
-]);
-
-if ($existing->fetch() !== false) {
+if (is_allowed_student_email($pdo, $email)) {
     json_response(200, [
         'email' => $email,
         'created' => false,
@@ -33,13 +22,8 @@ if ($existing->fetch() !== false) {
 }
 
 try {
-    $insert = $pdo->prepare(
-        'INSERT INTO allowed_students (student_email)
-         VALUES (:student_email)'
-    );
-    $insert->execute([
-        'student_email' => $email,
-    ]);
+    $insert = $pdo->prepare('INSERT INTO allowed_students (student_email) VALUES (:student_email)');
+    $insert->execute(['student_email' => $email]);
 } catch (Throwable $throwable) {
     fail(500, 'ALLOWLIST_UPDATE_FAILED', 'Die E-Mail-Adresse konnte nicht zur Zulassungsliste hinzugefügt werden.');
 }

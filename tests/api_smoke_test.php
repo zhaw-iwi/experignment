@@ -2,8 +2,6 @@
 
 declare(strict_types=1);
 
-const TEST_COOKIE_NAME = 'experiment_assignment_token';
-
 function assert_true(bool $condition, string $message): void
 {
     if (!$condition) {
@@ -20,18 +18,11 @@ function assert_equals(mixed $actual, mixed $expected, string $message): void
     }
 }
 
-function make_request(string $baseUrl, string $method, string $path, ?array $jsonBody = null, ?string &$cookie = null): array
+function make_request(string $baseUrl, string $method, string $path, ?array $jsonBody = null): array
 {
-    $headers = [
-        'Accept: application/json',
-    ];
-
+    $headers = ['Accept: application/json'];
     if ($jsonBody !== null) {
         $headers[] = 'Content-Type: application/json';
-    }
-
-    if ($cookie !== null) {
-        $headers[] = 'Cookie: ' . TEST_COOKIE_NAME . '=' . $cookie;
     }
 
     $options = [
@@ -42,7 +33,6 @@ function make_request(string $baseUrl, string $method, string $path, ?array $jso
             'timeout' => 10,
         ],
     ];
-
     if ($jsonBody !== null) {
         $options['http']['content'] = json_encode($jsonBody, JSON_THROW_ON_ERROR);
     }
@@ -50,17 +40,10 @@ function make_request(string $baseUrl, string $method, string $path, ?array $jso
     $context = stream_context_create($options);
     $rawBody = file_get_contents($baseUrl . $path, false, $context);
     $rawBody = is_string($rawBody) ? $rawBody : '';
-
     $responseHeaders = $http_response_header ?? [];
     $status = 0;
     if (isset($responseHeaders[0]) && preg_match('/\s(\d{3})\s/', $responseHeaders[0], $matches) === 1) {
         $status = (int) $matches[1];
-    }
-
-    foreach ($responseHeaders as $headerLine) {
-        if (preg_match('/^Set-Cookie:\s*' . TEST_COOKIE_NAME . '=([^;]+)/i', $headerLine, $matches) === 1) {
-            $cookie = $matches[1];
-        }
     }
 
     $decoded = json_decode($rawBody, true);
@@ -79,85 +62,141 @@ function setup_sqlite_database(string $dbPath): void
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     ]);
 
-    $pdo->exec('PRAGMA foreign_keys = ON');
-    $pdo->exec(
-        'CREATE TABLE allowed_students (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            student_email TEXT NOT NULL UNIQUE,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )'
-    );
-    $pdo->exec(
-        'CREATE TABLE participant_credits (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            student_email TEXT NOT NULL UNIQUE,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )'
-    );
-    $pdo->exec(
-        'CREATE TABLE assignment_items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            pool TEXT NOT NULL,
-            survey_url TEXT NOT NULL,
-            pin TEXT NOT NULL,
-            agent_url TEXT NULL,
-            is_assigned INTEGER NOT NULL DEFAULT 0,
-            assigned_at TEXT NULL,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(pool, pin)
-        )'
-    );
-    $pdo->exec(
-        'CREATE TABLE participant_assignment_links (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            student_email TEXT NOT NULL UNIQUE,
-            assignment_item_id INTEGER NOT NULL UNIQUE,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (assignment_item_id) REFERENCES assignment_items(id)
-        )'
-    );
-    $pdo->exec(
-        'CREATE TABLE browser_tokens (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            token_hash TEXT NOT NULL UNIQUE,
-            assignment_item_id INTEGER NOT NULL UNIQUE,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (assignment_item_id) REFERENCES assignment_items(id)
-        )'
-    );
-
-    $insert = $pdo->prepare(
-        'INSERT INTO assignment_items (pool, survey_url, pin, agent_url) VALUES (:pool, :survey_url, :pin, :agent_url)'
-    );
-    $allowedInsert = $pdo->prepare(
-        'INSERT INTO allowed_students (student_email) VALUES (:student_email)'
-    );
+    $pdo->exec('CREATE TABLE allowed_students (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_email TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )');
+    $pdo->exec('CREATE TABLE experiments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        public_name TEXT NOT NULL,
+        description TEXT NULL,
+        is_open INTEGER NOT NULL DEFAULT 0,
+        eligibility_mode TEXT NOT NULL DEFAULT "selected",
+        condition_mode TEXT NOT NULL DEFAULT "none",
+        requires_time_slot INTEGER NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )');
+    $pdo->exec('CREATE TABLE experiment_conditions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        experiment_id INTEGER NOT NULL,
+        public_name TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )');
+    $pdo->exec('CREATE TABLE experiment_eligibilities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        experiment_id INTEGER NOT NULL,
+        student_email TEXT NOT NULL,
+        condition_id INTEGER NULL,
+        source TEXT NOT NULL DEFAULT "manual",
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(experiment_id, student_email)
+    )');
+    $pdo->exec('CREATE TABLE access_fields (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        experiment_id INTEGER NOT NULL,
+        condition_id INTEGER NULL,
+        field_key TEXT NOT NULL,
+        label TEXT NOT NULL,
+        value_type TEXT NOT NULL DEFAULT "text",
+        value_source TEXT NOT NULL DEFAULT "shared",
+        shared_value TEXT NULL,
+        is_visible INTEGER NOT NULL DEFAULT 1,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )');
+    $pdo->exec('CREATE TABLE access_pool_rows (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        experiment_id INTEGER NOT NULL,
+        condition_id INTEGER NULL,
+        is_assigned INTEGER NOT NULL DEFAULT 0,
+        assigned_participation_id INTEGER NULL,
+        assigned_at TEXT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )');
+    $pdo->exec('CREATE TABLE access_pool_values (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pool_row_id INTEGER NOT NULL,
+        field_id INTEGER NOT NULL,
+        field_value TEXT NOT NULL,
+        UNIQUE(pool_row_id, field_id)
+    )');
+    $pdo->exec('CREATE TABLE participations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        experiment_id INTEGER NOT NULL,
+        condition_id INTEGER NULL,
+        student_email TEXT NOT NULL,
+        access_pool_row_id INTEGER NULL,
+        assigned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        confirmed_at TEXT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(experiment_id, student_email),
+        UNIQUE(access_pool_row_id)
+    )');
+    $pdo->exec('CREATE TABLE participation_field_values (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        participation_id INTEGER NOT NULL,
+        field_id INTEGER NOT NULL,
+        field_value TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )');
+    $pdo->exec('CREATE TABLE time_slots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        experiment_id INTEGER NOT NULL,
+        label TEXT NOT NULL,
+        starts_at TEXT NULL,
+        ends_at TEXT NULL,
+        capacity INTEGER NOT NULL DEFAULT 1,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )');
+    $pdo->exec('CREATE TABLE slot_choices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        participation_id INTEGER NOT NULL UNIQUE,
+        time_slot_id INTEGER NOT NULL,
+        chosen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )');
+    $pdo->exec('CREATE TABLE appointments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        participation_id INTEGER NOT NULL UNIQUE,
+        appointment_text TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )');
 
     foreach (['alice@students.zhaw.ch', 'bob@students.zhaw.ch', 'charlie@students.zhaw.ch'] as $email) {
-        $allowedInsert->execute([
-            'student_email' => $email,
-        ]);
+        $pdo->prepare('INSERT INTO allowed_students (student_email) VALUES (?)')->execute([$email]);
     }
 
-    $insert->execute([
-        'pool' => 'text',
-        'survey_url' => 'https://example.test/survey/text-1',
-        'pin' => 'T001',
-        'agent_url' => 'https://example.test/agent/1',
-    ]);
-    $insert->execute([
-        'pool' => 'text',
-        'survey_url' => 'https://example.test/survey/text-2',
-        'pin' => 'T002',
-        'agent_url' => 'https://example.test/agent/2',
-    ]);
-    $insert->execute([
-        'pool' => 'tablet',
-        'survey_url' => 'https://example.test/survey/tablet-1',
-        'pin' => 'TAB01',
-        'agent_url' => null,
-    ]);
+    $pdo->exec("INSERT INTO experiments
+        (id, public_name, description, is_open, eligibility_mode, condition_mode, requires_time_slot, sort_order)
+        VALUES
+        (1, 'Experiment 1', 'Choice flow', 1, 'all_allowed', 'student_choice', 0, 10),
+        (2, 'Experiment 3', 'Slot flow', 1, 'all_allowed', 'none', 1, 20)");
+    $pdo->exec("INSERT INTO experiment_conditions (id, experiment_id, public_name, sort_order)
+        VALUES (1, 1, 'Text', 10), (2, 1, 'Tablet', 20)");
+    $pdo->exec("INSERT INTO access_fields
+        (id, experiment_id, condition_id, field_key, label, value_type, value_source, shared_value, sort_order)
+        VALUES
+        (1, 1, 1, 'pid', 'Participant ID', 'pid', 'pool', NULL, 10),
+        (2, 1, 1, 'survey', 'Umfrage', 'url', 'pool', NULL, 20),
+        (3, 2, NULL, 'pid', 'Participant ID', 'pid', 'pool', NULL, 10)");
+    $pdo->exec("INSERT INTO access_pool_rows (id, experiment_id, condition_id)
+        VALUES (1, 1, 1), (2, 1, 1), (3, 2, NULL), (4, 2, NULL)");
+    $pdo->exec("INSERT INTO access_pool_values (pool_row_id, field_id, field_value)
+        VALUES
+        (1, 1, 'T001'), (1, 2, 'https://example.test/survey/1'),
+        (2, 1, 'T002'), (2, 2, 'https://example.test/survey/2'),
+        (3, 3, 'S001'), (4, 3, 'S002')");
+    $pdo->exec("INSERT INTO time_slots
+        (id, experiment_id, label, starts_at, ends_at, capacity, is_active, sort_order)
+        VALUES
+        (1, 2, 'Montag Vormittag', '2026-06-01 08:00:00', '2026-06-01 12:00:00', 1, 1, 10)");
 }
 
 function wait_for_server(string $baseUrl): void
@@ -222,86 +261,65 @@ try {
     assert_true(is_resource($process), 'Failed to start PHP built-in server.');
     wait_for_server($baseUrl);
 
-    $cookieA = null;
-    $response = make_request($baseUrl, 'GET', '/api/bootstrap.php', null, $cookieA);
-    assert_equals($response['status'], 200, 'bootstrap without cookie should return 200');
-    assert_equals($response['body']['assignment'] ?? null, null, 'bootstrap without cookie should return null assignment');
+    $response = make_request($baseUrl, 'GET', '/api/bootstrap.php');
+    assert_equals($response['status'], 200, 'bootstrap should return 200');
+    assert_equals($response['body']['version'] ?? null, 2, 'bootstrap should expose V2');
+
+    $response = make_request($baseUrl, 'GET', '/api/student_overview.php?email=alice%40students.zhaw.ch');
+    assert_equals($response['status'], 200, 'overview should return 200');
+    assert_equals(count($response['body']['experiments'] ?? []), 2, 'overview should include two experiments');
 
     $response = make_request($baseUrl, 'POST', '/api/claim.php', [
         'email' => 'alice@students.zhaw.ch',
-        'pool' => 'text',
-        'tabletConfirmed' => false,
-    ], $cookieA);
-    assert_equals($response['status'], 200, 'text claim should return 200');
-    assert_equals($response['body']['reused'] ?? null, false, 'first claim must not be reused');
-    assert_equals($response['body']['assignment']['pool'] ?? null, 'text', 'text claim should return text assignment');
-    assert_true(($response['body']['assignment']['agentUrl'] ?? null) !== null, 'text assignment should include agentUrl');
-    assert_true(is_string($cookieA) && $cookieA !== '', 'claim should set assignment cookie');
-    $assignmentA = $response['body']['assignment'] ?? null;
-    assert_true(is_array($assignmentA), 'claim should return assignment payload');
+        'experimentId' => 1,
+    ]);
+    assert_equals($response['status'], 422, 'condition choice should be required');
+    assert_equals($response['body']['error_code'] ?? null, 'CONDITION_REQUIRED', 'missing condition should be explicit');
 
-    $response = make_request($baseUrl, 'GET', '/api/bootstrap.php', null, $cookieA);
-    assert_equals($response['status'], 200, 'bootstrap with cookie should return 200');
-    assert_equals($response['body']['assignment'] ?? null, $assignmentA, 'bootstrap should recover same assignment');
-
-    $response = make_request($baseUrl, 'POST', '/api/claim.php', [
-        'email' => 'ignored@students.zhaw.ch',
-        'pool' => 'tablet',
-        'tabletConfirmed' => true,
-    ], $cookieA);
-    assert_equals($response['status'], 200, 'claim with existing cookie should return 200');
-    assert_equals($response['body']['reused'] ?? null, true, 'claim with existing cookie should be reused');
-    assert_equals($response['body']['assignment'] ?? null, $assignmentA, 'reused claim should return same assignment');
-
-    $cookieB = null;
-    $response = make_request($baseUrl, 'POST', '/api/claim.php', [
-        'email' => 'mallory@students.zhaw.ch',
-        'pool' => 'text',
-        'tabletConfirmed' => false,
-    ], $cookieB);
-    assert_equals($response['status'], 422, 'unknown email should return 422');
-    assert_equals($response['body']['error_code'] ?? null, 'EMAIL_NOT_RECOGNIZED', 'unknown email should return EMAIL_NOT_RECOGNIZED');
-
-    $cookieB = null;
     $response = make_request($baseUrl, 'POST', '/api/claim.php', [
         'email' => 'alice@students.zhaw.ch',
-        'pool' => 'text',
-        'tabletConfirmed' => false,
-    ], $cookieB);
-    assert_equals($response['status'], 409, 'duplicate email should return 409');
-    assert_equals($response['body']['error_code'] ?? null, 'EMAIL_ALREADY_USED', 'duplicate email should return EMAIL_ALREADY_USED');
+        'experimentId' => 1,
+        'conditionId' => 1,
+    ]);
+    assert_equals($response['status'], 200, 'claim should return 200');
+    assert_equals($response['body']['reused'] ?? null, false, 'first claim should not be reused');
+    $experiment = $response['body']['overview']['experiments'][0] ?? [];
+    assert_equals($experiment['assigned'] ?? null, true, 'claimed experiment should be assigned');
+    assert_equals(count($experiment['accessItems'] ?? []), 2, 'claimed experiment should include access items');
 
-    $cookieC = null;
     $response = make_request($baseUrl, 'POST', '/api/claim.php', [
-        'email' => 'bob@students.zhaw.ch',
-        'pool' => 'tablet',
-        'tabletConfirmed' => false,
-    ], $cookieC);
-    assert_equals($response['status'], 422, 'tablet claim without confirmation should return 422');
-    assert_equals(
-        $response['body']['error_code'] ?? null,
-        'TABLET_CONFIRMATION_REQUIRED',
-        'tablet without confirmation should return TABLET_CONFIRMATION_REQUIRED'
-    );
+        'email' => 'alice@students.zhaw.ch',
+        'experimentId' => 1,
+        'conditionId' => 1,
+    ]);
+    assert_equals($response['body']['reused'] ?? null, true, 'second claim should reuse participation');
 
     $response = make_request($baseUrl, 'POST', '/api/claim.php', [
         'email' => 'bob@students.zhaw.ch',
-        'pool' => 'tablet',
-        'tabletConfirmed' => true,
-    ], $cookieC);
-    assert_equals($response['status'], 200, 'tablet claim with confirmation should return 200');
-    assert_equals($response['body']['reused'] ?? null, false, 'tablet first claim must not be reused');
-    assert_equals($response['body']['assignment']['pool'] ?? null, 'tablet', 'tablet claim should return tablet assignment');
-    assert_equals($response['body']['assignment']['agentUrl'] ?? null, null, 'tablet assignment should not include agentUrl');
+        'experimentId' => 2,
+    ]);
+    assert_equals($response['status'], 200, 'slot experiment claim should return 200');
 
-    $cookieD = null;
+    $response = make_request($baseUrl, 'POST', '/api/choose_slot.php', [
+        'email' => 'bob@students.zhaw.ch',
+        'experimentId' => 2,
+        'slotId' => 1,
+    ]);
+    assert_equals($response['status'], 200, 'slot choice should return 200');
+
     $response = make_request($baseUrl, 'POST', '/api/claim.php', [
         'email' => 'charlie@students.zhaw.ch',
-        'pool' => 'tablet',
-        'tabletConfirmed' => true,
-    ], $cookieD);
-    assert_equals($response['status'], 409, 'exhausted tablet pool should return 409');
-    assert_equals($response['body']['error_code'] ?? null, 'POOL_EXHAUSTED', 'exhausted pool should return POOL_EXHAUSTED');
+        'experimentId' => 2,
+    ]);
+    assert_equals($response['status'], 200, 'second slot experiment claim should return 200');
+
+    $response = make_request($baseUrl, 'POST', '/api/choose_slot.php', [
+        'email' => 'charlie@students.zhaw.ch',
+        'experimentId' => 2,
+        'slotId' => 1,
+    ]);
+    assert_equals($response['status'], 409, 'full slot should return 409');
+    assert_equals($response['body']['error_code'] ?? null, 'SLOT_FULL', 'full slot should be explicit');
 
     fwrite(STDOUT, 'api_smoke_test.php: ok' . PHP_EOL);
 } finally {

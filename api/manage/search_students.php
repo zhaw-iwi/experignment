@@ -11,39 +11,28 @@ if ($query === '' || strlen($query) < 2) {
     json_response(200, ['students' => []]);
 }
 
-$like = $query . '%';
 $pdo = db();
-
 $statement = $pdo->prepare(
-    'SELECT pc.student_email,
-            pal.assignment_item_id,
-            ai.pool,
-            ai.pin
-     FROM participant_credits pc
-     LEFT JOIN participant_assignment_links pal
-       ON pal.student_email = pc.student_email
-     LEFT JOIN assignment_items ai
-       ON ai.id = pal.assignment_item_id
-     WHERE pc.student_email LIKE :email_like
-     ORDER BY pc.student_email ASC
-     LIMIT 12'
+    'SELECT a.student_email,
+            COUNT(p.id) AS participation_count,
+            SUM(CASE WHEN p.confirmed_at IS NOT NULL THEN 1 ELSE 0 END) AS confirmed_count
+     FROM allowed_students a
+     LEFT JOIN participations p ON p.student_email = a.student_email
+     WHERE a.student_email LIKE :email_like
+     GROUP BY a.student_email
+     ORDER BY a.student_email ASC
+     LIMIT 20'
 );
 $statement->execute([
-    'email_like' => $like,
+    'email_like' => $query . '%',
 ]);
 
-$rows = $statement->fetchAll();
 $students = [];
-foreach ($rows as $row) {
+foreach ($statement->fetchAll() as $row) {
     $students[] = [
         'email' => $row['student_email'],
-        'hasAssignment' => $row['assignment_item_id'] !== null,
-        'assignment' => $row['assignment_item_id'] !== null
-            ? [
-                'pool' => $row['pool'],
-                'pin' => $row['pin'],
-            ]
-            : null,
+        'participationCount' => (int) $row['participation_count'],
+        'confirmedCount' => (int) ($row['confirmed_count'] ?? 0),
     ];
 }
 

@@ -1,16 +1,20 @@
--- Reset script for experiment web app test cycles.
--- Keeps assignment_items rows intact and only resets runtime state.
+-- Reset script for V2 test cycles.
+-- Keeps configured experiments, fields, pools, slots, and allowed students.
 
 START TRANSACTION;
 
 SET FOREIGN_KEY_CHECKS = 0;
 
-TRUNCATE TABLE browser_tokens;
-TRUNCATE TABLE participant_assignment_links;
-TRUNCATE TABLE participant_credits;
+TRUNCATE TABLE appointments;
+TRUNCATE TABLE slot_choices;
+TRUNCATE TABLE participation_field_values;
+TRUNCATE TABLE participations;
+TRUNCATE TABLE randomization_run_allocations;
+TRUNCATE TABLE randomization_runs;
 
-UPDATE assignment_items
+UPDATE access_pool_rows
 SET is_assigned = 0,
+    assigned_participation_id = NULL,
     assigned_at = NULL;
 
 SET FOREIGN_KEY_CHECKS = 1;

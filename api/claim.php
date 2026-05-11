@@ -8,104 +8,79 @@ require_method('POST');
 
 $payload = read_json_body();
 $email = normalize_student_email((string) ($payload['email'] ?? ''));
-$pool = strtolower(trim((string) ($payload['pool'] ?? '')));
-$tabletConfirmed = (bool) ($payload['tabletConfirmed'] ?? false);
-
-if (!is_valid_student_email($email)) {
-    fail(422, 'INVALID_EMAIL', 'Bitte verwenden Sie Ihre ZHAW-Studierenden-E-Mail-Adresse.');
-}
-
-if (!is_valid_pool($pool)) {
-    fail(422, 'INVALID_POOL', 'Die gewählte Variante ist ungültig.');
-}
-
-if ($pool === 'tablet' && $tabletConfirmed !== true) {
-    fail(422, 'TABLET_CONFIRMATION_REQUIRED', 'Bitte bestätigen Sie vorab, dass das Tablet bereit ist.');
-}
+$experimentId = required_int($payload['experimentId'] ?? null, 'INVALID_EXPERIMENT', 'Bitte wählen Sie ein Experiment aus.');
+$requestedConditionId = nullable_int($payload['conditionId'] ?? null);
 
 $pdo = db();
-$currentToken = current_session_token();
-if ($currentToken !== null) {
-    $existingAssignment = fetch_assignment_by_token($pdo, $currentToken);
-    if ($existingAssignment !== null) {
-        json_response(200, [
-            'assignment' => $existingAssignment,
-            'reused' => true,
-        ]);
-    }
+require_allowed_student($pdo, $email);
+
+$experiment = fetch_experiment($pdo, $experimentId);
+if ($experiment === null) {
+    fail(404, 'EXPERIMENT_NOT_FOUND', 'Das Experiment wurde nicht gefunden.');
 }
 
-if (!is_allowed_student_email($pdo, $email)) {
-    fail(422, 'EMAIL_NOT_RECOGNIZED', 'Wir haben die E-Mail-Adresse nicht erkannt.');
+if (!bool_value($experiment['is_open'])) {
+    fail(409, 'EXPERIMENT_CLOSED', 'Dieses Experiment ist aktuell geschlossen.');
 }
 
-$participantLookup = $pdo->prepare(
-    'SELECT id
-     FROM participant_credits
-     WHERE student_email = :student_email
-     LIMIT 1'
-);
-$participantLookup->execute([
-    'student_email' => $email,
-]);
-
-if ($participantLookup->fetch() !== false) {
-    fail(
-        409,
-        'EMAIL_ALREADY_USED',
-        'Diese E-Mail-Adresse wurde bereits verwendet. Aus Datenschutzgründen kann der Zugang nur im ursprünglich verwendeten Browser erneut angezeigt werden.'
-    );
+$eligibility = fetch_eligibility($pdo, $experimentId, $email);
+if (!student_is_eligible($experiment, $eligibility)) {
+    fail(403, 'NOT_ELIGIBLE', 'Dieses Experiment ist für Sie nicht freigegeben.');
 }
+
+$existingParticipation = fetch_participation($pdo, $experimentId, $email);
+if ($existingParticipation !== null) {
+    json_response(200, [
+        'reused' => true,
+        'overview' => student_overview($pdo, $email),
+    ]);
+}
+
+$conditionId = resolve_participation_condition($pdo, $experiment, $eligibility, $requestedConditionId);
+$poolRow = null;
 
 try {
     $pdo->beginTransaction();
 
-    $assignmentRow = random_unassigned_assignment($pdo, $pool);
-    if ($assignmentRow === null) {
-        $pdo->rollBack();
-        fail(409, 'POOL_EXHAUSTED', 'Für diese Variante sind derzeit keine freien Zugänge mehr verfügbar.');
+    if (access_fields_require_pool($pdo, $experimentId, $conditionId)) {
+        $poolRow = select_available_pool_row($pdo, $experimentId, $conditionId);
+        if ($poolRow === null) {
+            $pdo->rollBack();
+            fail(409, 'ACCESS_POOL_EXHAUSTED', 'Für dieses Experiment sind aktuell keine freien Zugangsdaten verfügbar.');
+        }
     }
 
-    $markAssigned = $pdo->prepare(
-        'UPDATE assignment_items
-         SET is_assigned = 1, assigned_at = CURRENT_TIMESTAMP
-         WHERE id = :id AND is_assigned = 0'
+    $insert = $pdo->prepare(
+        'INSERT INTO participations (experiment_id, condition_id, student_email, access_pool_row_id)
+         VALUES (:experiment_id, :condition_id, :student_email, :access_pool_row_id)'
     );
-    $markAssigned->execute([
-        'id' => $assignmentRow['id'],
+    $insert->execute([
+        'experiment_id' => $experimentId,
+        'condition_id' => $conditionId,
+        'student_email' => $email,
+        'access_pool_row_id' => $poolRow !== null ? (int) $poolRow['id'] : null,
     ]);
+    $participationId = (int) $pdo->lastInsertId();
 
-    if ($markAssigned->rowCount() !== 1) {
-        $pdo->rollBack();
-        fail(409, 'ASSIGNMENT_CONFLICT', 'Die Zuweisung konnte nicht eindeutig reserviert werden. Bitte versuchen Sie es erneut.');
+    if ($poolRow !== null) {
+        $updatePool = $pdo->prepare(
+            'UPDATE access_pool_rows
+             SET is_assigned = 1,
+                 assigned_participation_id = :participation_id,
+                 assigned_at = CURRENT_TIMESTAMP
+             WHERE id = :id
+               AND is_assigned = 0'
+        );
+        $updatePool->execute([
+            'participation_id' => $participationId,
+            'id' => (int) $poolRow['id'],
+        ]);
+
+        if ($updatePool->rowCount() !== 1) {
+            $pdo->rollBack();
+            fail(409, 'ASSIGNMENT_CONFLICT', 'Die Zugangsdaten konnten nicht eindeutig reserviert werden. Bitte versuchen Sie es erneut.');
+        }
     }
-
-    $insertParticipant = $pdo->prepare(
-        'INSERT INTO participant_credits (student_email)
-         VALUES (:student_email)'
-    );
-    $insertParticipant->execute([
-        'student_email' => $email,
-    ]);
-
-    $insertAssignmentLink = $pdo->prepare(
-        'INSERT INTO participant_assignment_links (student_email, assignment_item_id)
-         VALUES (:student_email, :assignment_item_id)'
-    );
-    $insertAssignmentLink->execute([
-        'student_email' => $email,
-        'assignment_item_id' => $assignmentRow['id'],
-    ]);
-
-    $token = new_session_token();
-    $insertToken = $pdo->prepare(
-        'INSERT INTO browser_tokens (token_hash, assignment_item_id)
-         VALUES (:token_hash, :assignment_item_id)'
-    );
-    $insertToken->execute([
-        'token_hash' => token_hash_value($token),
-        'assignment_item_id' => $assignmentRow['id'],
-    ]);
 
     $pdo->commit();
 } catch (Throwable $throwable) {
@@ -115,9 +90,7 @@ try {
     fail(500, 'CLAIM_FAILED', 'Die Zuweisung konnte nicht gespeichert werden.');
 }
 
-set_session_cookie($token);
-
 json_response(200, [
-    'assignment' => assignment_payload($assignmentRow),
     'reused' => false,
+    'overview' => student_overview($pdo, $email),
 ]);

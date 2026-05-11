@@ -1,12 +1,110 @@
 body {
-    background: #f5f7fb;
+    min-height: 100vh;
+    background: #f4f7fb;
+    color: #172033;
 }
 
-.card {
-    border: 1px solid rgba(0, 0, 0, 0.08);
-    border-radius: 1rem;
+.page-header,
+.layout-grid,
+.form-grid {
+    display: grid;
+    gap: 1rem;
 }
 
-#searchSuggestions .list-group-item {
-    cursor: pointer;
+.page-header {
+    grid-template-columns: 1fr auto;
+    align-items: end;
+}
+
+.layout-grid {
+    grid-template-columns: minmax(280px, 0.8fr) minmax(420px, 1.2fr);
+}
+
+.form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.span-2 {
+    grid-column: span 2;
+}
+
+.panel {
+    padding: 1rem;
+    border: 1px solid rgba(23, 32, 51, 0.1);
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 8px 18px rgba(23, 32, 51, 0.06);
+}
+
+.eyebrow {
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #0d6efd;
+}
+
+.check-column {
+    display: flex;
+    flex-direction: column;
+    justify-content: end;
+    gap: 0.5rem;
+}
+
+.button-row,
+.action-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.action-row {
+    justify-content: flex-end;
+}
+
+.compact-list {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.compact-item {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: center;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid rgba(23, 32, 51, 0.1);
+    border-radius: 8px;
+    background: #f9fbfe;
+}
+
+.compact-item > div:first-child {
+    min-width: 0;
+}
+
+.compact-item strong,
+.compact-item .small {
+    overflow-wrap: anywhere;
+}
+
+.filter-select {
+    max-width: 260px;
+}
+
+.list-group-item.active .text-secondary,
+.list-group-item.active .small {
+    color: rgba(255, 255, 255, 0.82) !important;
+}
+
+@media (max-width: 991.98px) {
+    .page-header,
+    .layout-grid,
+    .form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .span-2 {
+        grid-column: span 1;
+    }
 }

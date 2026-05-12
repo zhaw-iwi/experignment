@@ -84,6 +84,7 @@ It supports:
 - opening experiment-specific editing by clicking an experiment in the overview
 - opening experiment-specific grading from the overview
 - showing the access reveal time and compact access values in grading, with link fields rendered as labeled buttons
+- listing registered students who have not opened access yet in the grading view
 - setting appointment text
 - resetting participations
 - toggling `Angerechnet`

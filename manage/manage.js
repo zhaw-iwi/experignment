@@ -130,6 +130,8 @@ const dom = {
     backFromGradingButton: document.getElementById("backFromGradingButton"),
     participationHeaderRow: document.getElementById("participationHeaderRow"),
     participationRows: document.getElementById("participationRows"),
+    noShowTitle: document.getElementById("noShowTitle"),
+    noShowList: document.getElementById("noShowList"),
 };
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -1501,7 +1503,9 @@ function renderGrading() {
     const experiment = selectedExperiment();
     dom.participationRows.innerHTML = "";
     dom.participationHeaderRow.innerHTML = "";
+    dom.noShowList.innerHTML = "";
     dom.gradingTitle.textContent = experiment ? `${experiment.name} Anrechnung` : "Anrechnung";
+    dom.noShowTitle.textContent = "No-Shows";
 
     if (state.view !== "grading" || !experiment) {
         return;
@@ -1538,6 +1542,8 @@ function renderGrading() {
         row.appendChild(cell);
         dom.participationRows.appendChild(row);
     }
+
+    renderNoShows(experiment, rows);
 }
 
 function gradingColumns(experiment) {
@@ -1707,6 +1713,59 @@ function gradingAccessDisplay(participation) {
     }
 
     return wrapper;
+}
+
+function renderNoShows(experiment, participations) {
+    const noShows = noShowStudents(experiment, participations);
+    dom.noShowTitle.textContent = `No-Shows (${noShows.length})`;
+
+    if (noShows.length === 0) {
+        dom.noShowList.appendChild(emptyListGroupItem("Keine No-Shows vorhanden."));
+        return;
+    }
+
+    for (const noShow of noShows) {
+        dom.noShowList.appendChild(listGroupSummaryItem(noShow.email, noShow.meta));
+    }
+}
+
+function noShowStudents(experiment, participations) {
+    const openedEmails = new Set(participations.map((participation) => participation.email));
+    const eligibilities = eligibilityByEmail(experiment);
+    return effectiveParticipantEmails(experiment)
+        .filter((email) => !openedEmails.has(email))
+        .map((email) => {
+            const eligibility = eligibilities.get(email) || null;
+            return {
+                email,
+                meta: noShowMeta(experiment, eligibility),
+            };
+        });
+}
+
+function noShowMeta(experiment, eligibility) {
+    const parts = [];
+    if (experiment.conditionMode !== "none" && (experiment.conditions || []).length > 0) {
+        parts.push(eligibility?.conditionName ? `Bedingung: ${eligibility.conditionName}` : "keine Bedingung");
+    }
+    parts.push(eligibilitySourceLabel(eligibility?.source || (experiment.eligibilityMode === "all_allowed" ? "all_allowed" : "manual")));
+    if (eligibility?.createdAt) {
+        parts.push(`seit ${formatDateTime(eligibility.createdAt)}`);
+    }
+    return parts.join(" · ");
+}
+
+function eligibilitySourceLabel(source) {
+    if (source === "all_allowed") {
+        return "alle zugelassen";
+    }
+    if (source === "random") {
+        return "randomisiert";
+    }
+    if (source === "system") {
+        return "system";
+    }
+    return "manuell";
 }
 
 function fieldValueMap(record) {

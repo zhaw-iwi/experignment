@@ -15,6 +15,7 @@ Experiment Assignment App is a PHP/MySQL application for managing student experi
 - [x] 2026-05-12: Management UI hierarchy redesign
 - [x] 2026-05-12: Compact grading access links
 - [x] 2026-05-12: Experiment overview click-to-edit
+- [x] 2026-05-12: Grading no-shows card
 - [ ] Migration from historical live database dump
 - [ ] Staff authentication
 
@@ -456,3 +457,40 @@ Observed on 2026-05-12:
 ### Next Steps
 
 - Browser-check row click, keyboard Enter/Space, and action-menu behavior in `/manage`.
+
+## 2026-05-12: Grading No-Shows Card
+
+### Goal
+
+Show staff which registered students have not opened experiment access yet.
+
+### What Changed
+
+- Added a `No-Shows` card underneath the Step 3 `Anrechnung` grading card.
+- Calculated no-shows client-side from the experiment's effective participant set minus existing participation rows.
+- Included condition/source metadata where available.
+- Added a scroll limit so large all-allowed experiments do not make the grading view unwieldy.
+- Updated README and context notes.
+
+### How To Run
+
+Open `manage/index.html`, choose an experiment, and open Step 3 `Anrechnung`. The `No-Shows` card lists registered or eligible students who have not clicked `Teilnehmen`.
+
+### How To Test
+
+- `node --check manage/manage.js`
+- `php tests/text_quality_test.php`
+
+Observed on 2026-05-12:
+
+- `text_quality_test.php` passed.
+- JavaScript syntax checking could not be run because Node.js is not installed in this environment.
+
+### Known Issues And Decisions
+
+- For `all_allowed` experiments, no-shows are all globally allowed students minus those with participation rows.
+- For selected-participant experiments, no-shows are selected eligibilities without participation rows.
+
+### Next Steps
+
+- Browser-check the card with both selected and all-allowed experiments.

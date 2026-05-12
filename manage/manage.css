@@ -332,6 +332,11 @@ body {
     white-space: nowrap;
 }
 
+.no-show-list {
+    max-height: 24rem;
+    overflow: auto;
+}
+
 .sample-block {
     padding: 0.75rem;
     overflow: auto;

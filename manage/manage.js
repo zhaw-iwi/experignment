@@ -8,6 +8,9 @@ const state = {
     conditionAssignmentSource: "manual",
 };
 
+const PAGE_ALERT_TIMEOUT_MS = 5000;
+const messageTimers = new WeakMap();
+
 const dom = {
     brandHomeButton: document.getElementById("brandHomeButton"),
     allowedCount: document.getElementById("allowedCount"),
@@ -70,6 +73,7 @@ const dom = {
     clearPoolButton: document.getElementById("clearPoolButton"),
     poolRowList: document.getElementById("poolRowList"),
     poolModal: document.getElementById("poolModal"),
+    poolModalMessage: document.getElementById("poolModalMessage"),
     poolModalConditionId: document.getElementById("poolModalConditionId"),
     poolSample: document.getElementById("poolSample"),
     poolTable: document.getElementById("poolTable"),
@@ -78,6 +82,7 @@ const dom = {
     staffValueSummary: document.getElementById("staffValueSummary"),
     manageStaffValuesButton: document.getElementById("manageStaffValuesButton"),
     staffValueModal: document.getElementById("staffValueModal"),
+    staffValueModalMessage: document.getElementById("staffValueModalMessage"),
     staffValueHeaderRow: document.getElementById("staffValueHeaderRow"),
     staffValueRows: document.getElementById("staffValueRows"),
     staffValueSaveButton: document.getElementById("staffValueSaveButton"),
@@ -92,6 +97,7 @@ const dom = {
     manageConditionAssignmentsButton: document.getElementById("manageConditionAssignmentsButton"),
     clearConditionAssignmentsButton: document.getElementById("clearConditionAssignmentsButton"),
     participantModal: document.getElementById("participantModal"),
+    participantModalMessage: document.getElementById("participantModalMessage"),
     participantModalSelectedList: document.getElementById("participantModalSelectedList"),
     participantSelectedCount: document.getElementById("participantSelectedCount"),
     participantSelectAllButton: document.getElementById("participantSelectAllButton"),
@@ -102,6 +108,7 @@ const dom = {
     participantSuggestionList: document.getElementById("participantSuggestionList"),
     participantSaveButton: document.getElementById("participantSaveButton"),
     conditionAssignmentModal: document.getElementById("conditionAssignmentModal"),
+    conditionAssignmentModalMessage: document.getElementById("conditionAssignmentModalMessage"),
     conditionAllocationFields: document.getElementById("conditionAllocationFields"),
     conditionRandomSeed: document.getElementById("conditionRandomSeed"),
     conditionRandomButton: document.getElementById("conditionRandomButton"),
@@ -257,6 +264,7 @@ function wireEvents() {
         await clearAccessPool();
     });
     dom.poolModalConditionId.addEventListener("change", () => {
+        clearMessage(dom.poolModalMessage);
         renderPoolSample();
     });
     dom.poolSaveButton.addEventListener("click", async () => {
@@ -281,11 +289,13 @@ function wireEvents() {
         state.participantDraftMode = "all_allowed";
         state.participantDraftEmails = new Set(allowedEmails());
         renderParticipantModal();
+        showMessage(`Alle ${state.participantDraftEmails.size} Studierenden ausgewählt.`, "success", dom.participantModalMessage);
     });
     dom.participantRandomButton.addEventListener("click", () => {
         selectRandomParticipants();
     });
     dom.participantSearchInput.addEventListener("input", () => {
+        clearMessage(dom.participantModalMessage);
         renderParticipantSuggestions();
     });
     dom.participantSaveButton.addEventListener("click", async () => {
@@ -304,6 +314,17 @@ function wireEvents() {
     dom.conditionAssignmentSaveButton.addEventListener("click", async () => {
         await saveConditionAssignments();
     });
+
+    for (const [modal, messageTarget] of [
+        [dom.participantModal, dom.participantModalMessage],
+        [dom.staffValueModal, dom.staffValueModalMessage],
+        [dom.poolModal, dom.poolModalMessage],
+        [dom.conditionAssignmentModal, dom.conditionAssignmentModalMessage],
+    ]) {
+        modal.addEventListener("hidden.bs.modal", () => {
+            clearMessage(messageTarget);
+        });
+    }
 
     dom.slotForm.addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -906,6 +927,7 @@ function openPoolModal() {
         showMessage("Bitte legen Sie zuerst ein Zugangsfeld mit Quelle Aus Pool zuweisen an.", "warning");
         return;
     }
+    clearMessage(dom.poolModalMessage);
     fillConditionSelect(dom.poolModalConditionId, experiment, "Experimentweit");
     dom.poolTable.value = "";
     renderPoolSample();
@@ -964,7 +986,7 @@ async function savePoolRows() {
         experimentId: experiment.id,
         conditionId: valueOrNull(dom.poolModalConditionId.value),
         table: dom.poolTable.value,
-    });
+    }, dom.poolModalMessage);
     bootstrap.Modal.getOrCreateInstance(dom.poolModal).hide();
     dom.poolTable.value = "";
     await loadDashboard(`${payload.imported} Pool-Zeilen importiert.`);
@@ -1003,6 +1025,7 @@ function openStaffValueModal() {
         return;
     }
 
+    clearMessage(dom.staffValueModalMessage);
     renderStaffValueModal();
     bootstrap.Modal.getOrCreateInstance(dom.staffValueModal).show();
 }
@@ -1068,7 +1091,7 @@ async function saveStaffEligibilityFieldValues() {
     const payload = await postAction("save_staff_eligibility_field_values", {
         experimentId: experiment.id,
         rows: Array.from(rows.entries()).map(([email, values]) => ({ email, values })),
-    });
+    }, dom.staffValueModalMessage);
     bootstrap.Modal.getOrCreateInstance(dom.staffValueModal).hide();
     await loadDashboard(`${payload.savedCount} Staff-Werte gespeichert.`);
 }
@@ -1144,6 +1167,7 @@ function openParticipantModal() {
     }
     state.participantDraftMode = experiment.eligibilityMode;
     state.participantDraftEmails = new Set(effectiveParticipantEmails(experiment));
+    clearMessage(dom.participantModalMessage);
     dom.participantRandomCount.value = Math.min(Math.max(1, state.participantDraftEmails.size || 1), allowedEmails().length || 1);
     dom.participantRandomSeed.value = dom.participantRandomSeed.value || defaultSeed();
     dom.participantSearchInput.value = "";
@@ -1167,6 +1191,7 @@ function renderParticipantModal() {
         strong.textContent = email;
         const remove = smallButton("Entfernen", "outline-danger");
         remove.addEventListener("click", () => {
+            clearMessage(dom.participantModalMessage);
             state.participantDraftMode = "selected";
             state.participantDraftEmails.delete(email);
             renderParticipantModal();
@@ -1196,6 +1221,7 @@ function renderParticipantSuggestions() {
         button.className = "list-group-item list-group-item-action";
         button.textContent = email;
         button.addEventListener("click", () => {
+            clearMessage(dom.participantModalMessage);
             state.participantDraftMode = "selected";
             state.participantDraftEmails.add(email);
             dom.participantSearchInput.value = "";
@@ -1209,12 +1235,14 @@ function selectRandomParticipants() {
     const emails = allowedEmails();
     const requestedCount = Number(dom.participantRandomCount.value);
     if (!Number.isInteger(requestedCount) || requestedCount < 1 || requestedCount > emails.length) {
-        showMessage(`Bitte eine Anzahl zwischen 1 und ${emails.length} eingeben.`, "warning");
+        showMessage(`Bitte eine Anzahl zwischen 1 und ${emails.length} eingeben.`, "warning", dom.participantModalMessage);
         return;
     }
+    clearMessage(dom.participantModalMessage);
     state.participantDraftMode = "selected";
     state.participantDraftEmails = new Set(deterministicEmailOrder(emails, dom.participantRandomSeed.value || defaultSeed()).slice(0, requestedCount));
     renderParticipantModal();
+    showMessage(`${requestedCount} Studierende ausgewählt.`, "success", dom.participantModalMessage);
 }
 
 async function saveParticipantSelection() {
@@ -1226,7 +1254,7 @@ async function saveParticipantSelection() {
         experimentId: experiment.id,
         mode: state.participantDraftMode,
         emails: Array.from(state.participantDraftEmails),
-    });
+    }, dom.participantModalMessage);
     bootstrap.Modal.getOrCreateInstance(dom.participantModal).hide();
     await loadDashboard(`${payload.selectedCount} Studierende gespeichert.`);
 }
@@ -1257,6 +1285,7 @@ function openConditionAssignmentModal() {
     }
 
     const eligibilities = eligibilityByEmail(experiment);
+    clearMessage(dom.conditionAssignmentModalMessage);
     state.conditionAssignmentDraft = new Map();
     for (const email of effectiveParticipantEmails(experiment)) {
         state.conditionAssignmentDraft.set(email, eligibilities.get(email)?.conditionId || "");
@@ -1304,6 +1333,7 @@ function renderConditionAssignmentModal() {
         }
         select.value = String(state.conditionAssignmentDraft.get(email) || "");
         select.addEventListener("change", () => {
+            clearMessage(dom.conditionAssignmentModalMessage);
             state.conditionAssignmentSource = "manual";
             state.conditionAssignmentDraft.set(email, valueOrNull(select.value) || "");
         });
@@ -1325,10 +1355,11 @@ function applyRandomConditionAssignments() {
     }));
     const sum = allocations.reduce((total, allocation) => total + allocation.percentage, 0);
     if (allocations.some((allocation) => !Number.isFinite(allocation.percentage) || allocation.percentage < 0) || Math.abs(sum - 100) > 0.001) {
-        showMessage("Die Prozentwerte müssen zusammen 100 ergeben.", "warning");
+        showMessage("Die Prozentwerte müssen zusammen 100 ergeben.", "warning", dom.conditionAssignmentModalMessage);
         return;
     }
 
+    clearMessage(dom.conditionAssignmentModalMessage);
     const emails = deterministicEmailOrder(Array.from(state.conditionAssignmentDraft.keys()), dom.conditionRandomSeed.value || defaultSeed());
     const counts = allocationCountsForTotal(allocations, emails.length);
     let emailIndex = 0;
@@ -1341,6 +1372,7 @@ function applyRandomConditionAssignments() {
     }
     state.conditionAssignmentSource = "random";
     renderConditionAssignmentModal();
+    showMessage("Bedingungen randomisiert.", "success", dom.conditionAssignmentModalMessage);
 }
 
 async function saveConditionAssignments() {
@@ -1353,14 +1385,14 @@ async function saveConditionAssignments() {
         conditionId: valueOrNull(conditionId),
     }));
     if (assignments.some((assignment) => assignment.conditionId === null)) {
-        showMessage("Bitte für alle Studierenden eine Bedingung auswählen.", "warning");
+        showMessage("Bitte für alle Studierenden eine Bedingung auswählen.", "warning", dom.conditionAssignmentModalMessage);
         return;
     }
     const payload = await postAction("save_condition_assignments", {
         experimentId: experiment.id,
         source: state.conditionAssignmentSource,
         assignments,
-    });
+    }, dom.conditionAssignmentModalMessage);
     bootstrap.Modal.getOrCreateInstance(dom.conditionAssignmentModal).hide();
     await loadDashboard(`${payload.assignedCount} Bedingungszuweisungen gespeichert.`);
 }
@@ -1861,8 +1893,8 @@ function actionRow(buttons) {
     return row;
 }
 
-async function postAction(action, payload) {
-    clearMessage();
+async function postAction(action, payload, messageTarget = dom.messageArea) {
+    clearMessage(messageTarget);
     try {
         return await apiRequest("../api/manage/actions.php", {
             method: "POST",
@@ -1872,7 +1904,7 @@ async function postAction(action, payload) {
             }),
         });
     } catch (error) {
-        showMessage(error.message || "Die Aktion konnte nicht abgeschlossen werden.", "danger");
+        showMessage(error.message || "Die Aktion konnte nicht abgeschlossen werden.", "danger", messageTarget);
         throw error;
     }
 }
@@ -1919,15 +1951,28 @@ function defaultSeed() {
     return new Date().toISOString().replace(/[^\d]/g, "").slice(0, 14);
 }
 
-function showMessage(message, type) {
-    dom.messageArea.className = `alert alert-${type}`;
-    dom.messageArea.textContent = message;
-    dom.messageArea.classList.remove("d-none");
+function showMessage(message, type, target = dom.messageArea) {
+    clearMessageTimer(target);
+    target.className = `alert alert-${type}`;
+    target.textContent = message;
+    target.classList.remove("d-none");
+    if (target === dom.messageArea) {
+        messageTimers.set(target, window.setTimeout(() => clearMessage(target), PAGE_ALERT_TIMEOUT_MS));
+    }
 }
 
-function clearMessage() {
-    dom.messageArea.className = "d-none";
-    dom.messageArea.textContent = "";
+function clearMessage(target = dom.messageArea) {
+    clearMessageTimer(target);
+    target.className = "d-none";
+    target.textContent = "";
+}
+
+function clearMessageTimer(target) {
+    const timer = messageTimers.get(target);
+    if (timer) {
+        window.clearTimeout(timer);
+        messageTimers.delete(target);
+    }
 }
 
 function escapeHtml(value) {

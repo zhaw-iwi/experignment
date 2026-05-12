@@ -158,10 +158,10 @@ The student UI should:
 ## Important Files
 
 - `database/schema.sql`: canonical V2 schema.
-- `database/migrate_staff_values.sql`: migration for adding pre-participation staff-entry values to existing V2 databases.
 - `database/seed.sql`: real course allowlist only; no experiments or access data.
-- `database/seed_examples.sql`: self-contained demo/dev data with sample students, experiments, access fields, access pools, and slots.
-- `database/reset.sql`: resets runtime V2 state but keeps configured experiments, fields, pools, slots, and allowed students.
+- `database/seed_examples.sql`: self-contained demo/dev data with sample students, representative experiments, access fields, staff-prepared values, access pools, and slots.
+- `database/reset.sql`: removes experiment setup and runtime data while preserving `allowed_students` and schema metadata.
+- `database/drop_tables.sql`: drops all application tables in dependency order for full teardown/rebuild cycles.
 - `database/live_database.sql`: historical live dump from the V1 app. Treat it as migration context only; do not edit it unless the user explicitly asks for migration work.
 - `config/config.php`: deployment DB configuration plus `EXPERIMENT_DB_DSN` test override.
 - `api/_bootstrap.php`: shared API helpers and domain read helpers.

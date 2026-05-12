@@ -10,10 +10,10 @@ PHP/MySQL web app for assigning experiment access information to ZHAW students a
 - `api/`: student and staff JSON endpoints
 - `config/config.php`: deployment database configuration
 - `database/schema.sql`: V2 schema
-- `database/migrate_staff_values.sql`: V2 migration for staff-prepared access values
 - `database/seed.sql`: real course allowlist only
-- `database/seed_examples.sql`: optional sample V2 experiments and access data
-- `database/reset.sql`: reset runtime V2 state
+- `database/seed_examples.sql`: optional representative demo experiments and access data
+- `database/reset.sql`: remove experiment setup and runtime data while preserving the global allowlist
+- `database/drop_tables.sql`: drop all application tables in dependency order
 - `.agents/CONTEXT.md`: current domain decisions
 - `.agents/PROJECT.md`: milestone audit trail
 - `tests/`: PHP checks
@@ -27,9 +27,11 @@ mysql -u USER -p DATABASE < database/schema.sql
 mysql -u USER -p DATABASE < database/seed.sql
 ```
 
-`seed.sql` contains only the current real `allowed_students` list. Use `database/seed_examples.sql` only for a throwaway/demo database because it creates example experiments, fields, access pools, and slots.
+`seed.sql` contains only the current real `allowed_students` list. Use `database/seed_examples.sql` only for a throwaway/demo database because it creates representative example experiments, conditions, selected participants, staff-prepared values, access pools, and slots.
 
-Existing V2 databases need `database/migrate_staff_values.sql` once before deploying versions with staff-prepared access values.
+Use `database/reset.sql` when you want to remove all experiment configuration and runtime data from a deployment while keeping the global `allowed_students` list.
+
+Use `database/drop_tables.sql` only when you want to remove the full application schema before rebuilding it from `schema.sql`.
 
 ## Configuration
 

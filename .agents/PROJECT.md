@@ -327,11 +327,14 @@ Reduce cognitive load in the staff UI by replacing the single dense management s
 - Added guarded clear actions and management buttons for experiment participant selections and condition assignments.
 - Guarded participant subset saves and condition assignment saves so students with existing participations are not removed or reassigned inconsistently.
 - Added experiment-setup editing for `staff_entry` access-field values, backed by `eligibility_field_values` and copied into participations when access is opened.
-- Added `database/migrate_staff_values.sql` for existing V2 deployments.
 - Made the grading table derive optional columns from the selected experiment configuration and show the access reveal timestamp.
 - Moved pool provisioning into a dedicated card and CSV modal with generated sample rows, plus a guarded whole-pool clear action.
 - Updated the student page to use a full-width navbar with `Experimente`, active email display, and `Beenden`.
 - Harmonized the student overview content width so alerts, tables, and detail panels align inside the same container.
+- Added modal-local alerts for participant selection, staff values, pool import, and condition assignment workflows.
+- Disabled student access-information actions after a participation is graded, and auto-dismissed page-level alerts after five seconds.
+- Reconciled database scripts: `reset.sql` now preserves only the allowlist and schema metadata, and `seed_examples.sql` covers current pool, staff-value, assigned-condition, and slot workflows.
+- Removed the obsolete staff-values migration script and added `database/drop_tables.sql` for ordered full schema teardown.
 - Added cancel actions to the condition and access-field edit forms so they reset to new-entry mode.
 - Changed experiment list items to expose a three-dot menu for editing, grading, and deletion.
 - Added the global allowed-student list to `api/manage/dashboard.php`.

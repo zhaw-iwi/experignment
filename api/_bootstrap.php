@@ -668,6 +668,7 @@ function experiment_student_payload(PDO $pdo, array $experiment, string $email):
 
     $isOpen = bool_value($experiment['is_open']);
     $assigned = $participation !== null;
+    $confirmed = $participation !== null && ($participation['confirmed_at'] ?? null) !== null;
     $canChooseCondition = !$assigned
         && $isOpen
         && $experiment['condition_mode'] === 'student_choice'
@@ -688,7 +689,7 @@ function experiment_student_payload(PDO $pdo, array $experiment, string $email):
         $timeSlots = fetch_time_slots($pdo, $experimentId);
         if ($participation !== null) {
             $slotChoice = fetch_slot_choice($pdo, (int) $participation['id']);
-            $canChooseSlot = $isOpen && $slotChoice === null;
+            $canChooseSlot = $isOpen && !$confirmed && $slotChoice === null;
         }
     }
 
@@ -703,14 +704,14 @@ function experiment_student_payload(PDO $pdo, array $experiment, string $email):
         'eligible' => $eligible,
         'assigned' => $assigned,
         'assignedAt' => $participation['assigned_at'] ?? null,
-        'confirmed' => $participation !== null && ($participation['confirmed_at'] ?? null) !== null,
+        'confirmed' => $confirmed,
         'confirmedAt' => $participation['confirmed_at'] ?? null,
         'condition' => condition_payload($activeCondition),
         'availableConditions' => $availableConditions,
         'canClaim' => $isOpen && $eligible && !$assigned,
-        'canViewAccess' => $isOpen && $assigned,
+        'canViewAccess' => $isOpen && $assigned && !$confirmed,
         'canChooseCondition' => $canChooseCondition,
-        'accessItems' => $isOpen && $participation !== null ? access_payload($pdo, $participation) : [],
+        'accessItems' => $isOpen && $participation !== null && !$confirmed ? access_payload($pdo, $participation) : [],
         'slotChoice' => $slotChoice,
         'timeSlots' => $timeSlots,
         'canChooseSlot' => $canChooseSlot,

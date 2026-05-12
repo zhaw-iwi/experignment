@@ -779,6 +779,8 @@ try {
     assert_equals($response['status'], 200, 'student should retrieve managed assignment');
     $managedExperiment = experiment_by_id($response['body'] ?? [], $managedExperimentId);
     assert_equals($managedExperiment['confirmed'] ?? null, true, 'student overview should show confirmation');
+    assert_equals($managedExperiment['canViewAccess'] ?? null, false, 'confirmed participations should not expose access button');
+    assert_equals(count($managedExperiment['accessItems'] ?? []), 0, 'confirmed participations should not expose access data');
     assert_equals($managedExperiment['appointmentText'] ?? null, '09:30', 'student overview should show appointment text');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [

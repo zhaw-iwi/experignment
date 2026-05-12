@@ -1,4 +1,6 @@
 const STUDENT_EMAIL_KEY = "experiment_student_email_v2";
+const PAGE_ALERT_TIMEOUT_MS = 5000;
+const messageTimers = new WeakMap();
 
 const state = {
     email: "",
@@ -107,7 +109,11 @@ function renderOverview() {
         button.type = "button";
         button.className = "btn btn-sm";
 
-        if (experiment.canViewAccess) {
+        if (experiment.confirmed) {
+            button.classList.add("btn-outline-secondary");
+            button.disabled = true;
+            button.textContent = "Angerechnet";
+        } else if (experiment.canViewAccess) {
             button.classList.add("btn-primary");
             button.textContent = "Informationen";
             button.addEventListener("click", () => renderDetail(experiment.id));
@@ -430,14 +436,25 @@ function isStudentEmail(email) {
 }
 
 function showMessage(target, message, type) {
+    clearMessageTimer(target);
     target.className = `alert alert-${type}`;
     target.textContent = message;
     target.classList.remove("d-none");
+    messageTimers.set(target, window.setTimeout(() => clearMessage(target), PAGE_ALERT_TIMEOUT_MS));
 }
 
 function clearMessage(target) {
+    clearMessageTimer(target);
     target.className = "d-none";
     target.textContent = "";
+}
+
+function clearMessageTimer(target) {
+    const timer = messageTimers.get(target);
+    if (timer) {
+        window.clearTimeout(timer);
+        messageTimers.delete(target);
+    }
 }
 
 function readStoredEmail() {

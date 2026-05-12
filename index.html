@@ -14,6 +14,15 @@
     <link rel="stylesheet" href="assets/app.css">
 </head>
 <body>
+<nav class="navbar navbar-expand-lg student-topbar border-bottom bg-white">
+    <div class="student-navbar-inner">
+        <span class="navbar-brand mb-0">Experimente</span>
+        <div id="studentSessionControls" class="d-flex gap-2 align-items-center ms-lg-auto d-none">
+            <span id="currentEmailBadge" class="badge text-bg-light"></span>
+            <button id="changeEmailButton" type="button" class="btn btn-outline-secondary btn-sm">Beenden</button>
+        </div>
+    </div>
+</nav>
 <main class="app-shell">
     <div class="container py-4 py-md-5">
         <section id="emailPanel" class="panel mx-auto">
@@ -42,10 +51,6 @@
                 <div>
                     <p class="eyebrow mb-1">Übersicht</p>
                     <h1 class="h3 mb-0">Ihre Experimente</h1>
-                </div>
-                <div class="d-flex align-items-center gap-2">
-                    <span id="currentEmailBadge" class="badge text-bg-light"></span>
-                    <button id="changeEmailButton" type="button" class="btn btn-outline-secondary btn-sm">E-Mail ändern</button>
                 </div>
             </div>
 

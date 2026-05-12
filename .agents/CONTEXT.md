@@ -145,6 +145,7 @@ The student UI should:
 
 - Ask for email if no local email is stored.
 - Store the email in local browser storage for convenience.
+- Show a full-width navbar with `Experimente`, the active email, and a `Beenden` action once a student session is active.
 - Load overview data dynamically from `api/student_overview.php`.
 - Show visible experiments with columns for experiment, condition, assignment, assignment date, and `Angerechnet`.
 - Show disabled buttons for closed experiments.

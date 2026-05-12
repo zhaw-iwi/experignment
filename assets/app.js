@@ -12,6 +12,7 @@ const dom = {
     studentEmail: document.getElementById("studentEmail"),
     identifyButton: document.getElementById("identifyButton"),
     entryMessage: document.getElementById("entryMessage"),
+    studentSessionControls: document.getElementById("studentSessionControls"),
     overviewPanel: document.getElementById("overviewPanel"),
     overviewMessage: document.getElementById("overviewMessage"),
     currentEmailBadge: document.getElementById("currentEmailBadge"),
@@ -42,6 +43,7 @@ document.addEventListener("DOMContentLoaded", () => {
         state.overview = null;
         state.activeExperimentId = null;
         clearStoredEmail();
+        renderSessionControls();
         dom.overviewPanel.classList.add("d-none");
         dom.emailPanel.classList.remove("d-none");
         dom.studentEmail.focus();
@@ -61,6 +63,7 @@ async function loadOverview(email) {
         state.overview = overview;
         writeStoredEmail(overview.email);
         renderOverview();
+        renderSessionControls();
         dom.emailPanel.classList.add("d-none");
         dom.overviewPanel.classList.remove("d-none");
     } catch (error) {
@@ -71,7 +74,6 @@ async function loadOverview(email) {
 }
 
 function renderOverview() {
-    dom.currentEmailBadge.textContent = state.email;
     dom.experimentRows.innerHTML = "";
     dom.detailPanel.classList.add("d-none");
     dom.detailPanel.innerHTML = "";
@@ -129,6 +131,12 @@ function renderOverview() {
         row.appendChild(actionCell);
         dom.experimentRows.appendChild(row);
     }
+}
+
+function renderSessionControls() {
+    const hasEmail = state.email !== "";
+    dom.studentSessionControls.classList.toggle("d-none", !hasEmail);
+    dom.currentEmailBadge.textContent = hasEmail ? state.email : "";
 }
 
 function renderConditionChoice(experimentId) {

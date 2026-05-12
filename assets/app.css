@@ -9,6 +9,24 @@ body {
     min-height: 100vh;
 }
 
+.student-topbar {
+    padding: 0;
+}
+
+.student-navbar-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 0.5rem 1rem;
+}
+
+.student-topbar .navbar-brand {
+    color: #172033;
+    font-weight: 700;
+}
+
 .panel {
     max-width: 1080px;
     padding: 1.25rem;

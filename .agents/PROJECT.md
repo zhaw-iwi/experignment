@@ -330,6 +330,7 @@ Reduce cognitive load in the staff UI by replacing the single dense management s
 - Added `database/migrate_staff_values.sql` for existing V2 deployments.
 - Made the grading table derive optional columns from the selected experiment configuration and show the access reveal timestamp.
 - Moved pool provisioning into a dedicated card and CSV modal with generated sample rows, plus a guarded whole-pool clear action.
+- Updated the student page to use a full-width navbar with `Experimente`, active email display, and `Beenden`.
 - Changed experiment list items to expose a three-dot menu for editing, grading, and deletion.
 - Added the global allowed-student list to `api/manage/dashboard.php`.
 - Added `delete_allowed_student` in `api/manage/actions.php`; removal is blocked when a student already has participations.

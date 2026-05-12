@@ -45,6 +45,7 @@ Database deployment settings are stored in `config/config.php`. `EXPERIMENT_DB_D
 6. Slot-based experiments require one slot choice with capacity checks.
 7. Staff-entered appointment text appears in the access information when available.
 8. `Angerechnet` is shown after staff confirms the participation.
+9. The current email session is shown in the top navbar and can be ended with `Beenden`.
 
 ## Staff Flow
 

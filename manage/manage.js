@@ -75,6 +75,7 @@ const dom = {
     poolModal: document.getElementById("poolModal"),
     poolModalMessage: document.getElementById("poolModalMessage"),
     poolModalConditionId: document.getElementById("poolModalConditionId"),
+    poolConditionHint: document.getElementById("poolConditionHint"),
     poolSample: document.getElementById("poolSample"),
     poolTable: document.getElementById("poolTable"),
     poolSaveButton: document.getElementById("poolSaveButton"),
@@ -945,6 +946,7 @@ function openPoolModal() {
     }
     clearMessage(dom.poolModalMessage);
     fillConditionSelect(dom.poolModalConditionId, experiment, "Experimentweit");
+    configurePoolConditionSelect(experiment);
     dom.poolTable.value = "";
     renderPoolSample();
     bootstrap.Modal.getOrCreateInstance(dom.poolModal).show();
@@ -954,13 +956,21 @@ function renderPoolSample() {
     const experiment = selectedExperiment();
     if (!experiment) {
         dom.poolSample.textContent = "";
+        dom.poolSaveButton.disabled = true;
         return;
     }
 
     const conditionId = valueOrNull(dom.poolModalConditionId.value);
+    if (poolImportRequiresCondition(experiment) && conditionId === null) {
+        dom.poolSample.textContent = "Bitte wählen Sie eine Bedingung aus.";
+        dom.poolSaveButton.disabled = true;
+        return;
+    }
+
     const fields = poolFieldsForCondition(experiment, conditionId);
     if (fields.length === 0) {
         dom.poolSample.textContent = "Für diese Auswahl sind keine Pool-Felder definiert.";
+        dom.poolSaveButton.disabled = true;
         return;
     }
 
@@ -968,6 +978,7 @@ function renderPoolSample() {
     const rowOne = fields.map((field) => samplePoolValue(field, 1));
     const rowTwo = fields.map((field) => samplePoolValue(field, 2));
     dom.poolSample.textContent = [headers, rowOne, rowTwo].map((row) => row.join(",")).join("\n");
+    dom.poolSaveButton.disabled = false;
 }
 
 function poolFieldsForCondition(experiment, conditionId) {
@@ -980,6 +991,33 @@ function poolFieldsForCondition(experiment, conditionId) {
         }
         return field.conditionId === null || field.conditionId === conditionId;
     });
+}
+
+function configurePoolConditionSelect(experiment) {
+    const emptyOption = dom.poolModalConditionId.querySelector('option[value=""]');
+    if (!poolImportRequiresCondition(experiment)) {
+        if (emptyOption) {
+            emptyOption.disabled = false;
+            emptyOption.textContent = "Experimentweit";
+        }
+        dom.poolConditionHint.textContent = "";
+        return;
+    }
+
+    if (emptyOption) {
+        emptyOption.disabled = true;
+        emptyOption.textContent = "Experimentweit (nur ohne Bedingungen)";
+    }
+
+    if (dom.poolModalConditionId.value === "" && dom.poolModalConditionId.options.length > 1) {
+        dom.poolModalConditionId.value = dom.poolModalConditionId.options[1].value;
+    }
+
+    dom.poolConditionHint.textContent = "Dieses Experiment verwendet Bedingungen. Pool-Zeilen werden pro Bedingung importiert; die CSV enthält dabei auch experimentweite Pool-Felder wie PID oder Umfrage-Link.";
+}
+
+function poolImportRequiresCondition(experiment) {
+    return Boolean(experiment) && experiment.conditionMode !== "none";
 }
 
 function samplePoolValue(field, index) {
@@ -996,6 +1034,10 @@ function samplePoolValue(field, index) {
 async function savePoolRows() {
     const experiment = selectedExperiment();
     if (!experiment) {
+        return;
+    }
+    if (poolImportRequiresCondition(experiment) && valueOrNull(dom.poolModalConditionId.value) === null) {
+        showMessage("Bitte wählen Sie eine Bedingung aus.", "warning", dom.poolModalMessage);
         return;
     }
     const payload = await postAction("import_pool_rows", {

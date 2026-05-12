@@ -593,6 +593,36 @@ try {
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'save_access_field',
         'experimentId' => $managedExperimentId,
+        'conditionId' => null,
+        'label' => 'Global Pool ID',
+        'fieldKey' => 'global_pool_id',
+        'valueType' => 'pid',
+        'valueSource' => 'pool',
+        'isVisible' => true,
+        'sortOrder' => 5,
+    ]);
+    assert_equals($response['status'], 201, 'management should create experiment-wide pool field');
+    $globalPoolFieldId = (int) ($response['body']['fieldId'] ?? 0);
+    assert_true($globalPoolFieldId > 0, 'experiment-wide pool field id should be present');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'import_pool_rows',
+        'experimentId' => $managedExperimentId,
+        'conditionId' => null,
+        'table' => "global_pool_id\nG001",
+    ]);
+    assert_equals($response['status'], 422, 'conditioned experiments should reject experiment-wide pool imports');
+    assert_equals($response['body']['error_code'] ?? null, 'CONDITION_POOL_REQUIRED', 'conditioned pool import guard should be explicit');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'delete_access_field',
+        'fieldId' => $globalPoolFieldId,
+    ]);
+    assert_equals($response['status'], 200, 'unused experiment-wide pool field should be removable');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_access_field',
+        'experimentId' => $managedExperimentId,
         'conditionId' => $managedConditionId,
         'label' => 'Managed PID',
         'fieldKey' => 'managed_pid',

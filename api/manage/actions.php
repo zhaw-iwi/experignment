@@ -74,6 +74,22 @@ function fetch_pool_fields_for_import(PDO $pdo, int $experimentId, ?int $conditi
     return $fields;
 }
 
+function require_valid_pool_import_scope(PDO $pdo, int $experimentId, ?int $conditionId): void
+{
+    $experiment = fetch_experiment($pdo, $experimentId);
+    if ($experiment === null) {
+        fail(404, 'EXPERIMENT_NOT_FOUND', 'Das Experiment wurde nicht gefunden.');
+    }
+
+    if ($conditionId === null && $experiment['condition_mode'] !== 'none') {
+        fail(
+            422,
+            'CONDITION_POOL_REQUIRED',
+            'Dieses Experiment verwendet Bedingungen. Bitte stellen Sie den Zugangsdaten-Pool pro Bedingung bereit.'
+        );
+    }
+}
+
 function deterministic_email_order(array $emails, string $seed): array
 {
     usort(
@@ -675,6 +691,7 @@ try {
     if ($action === 'import_pool_rows') {
         $experimentId = required_int($payload['experimentId'] ?? null, 'INVALID_EXPERIMENT', 'Bitte wählen Sie ein Experiment aus.');
         $conditionId = ensure_condition_for_experiment($pdo, nullable_int($payload['conditionId'] ?? null), $experimentId);
+        require_valid_pool_import_scope($pdo, $experimentId, $conditionId);
         $rawTable = (string) ($payload['table'] ?? '');
         [$headers, $rows] = parse_table_lines($rawTable);
         if ($rows === []) {

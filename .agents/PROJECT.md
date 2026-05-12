@@ -16,6 +16,7 @@ Experiment Assignment App is a PHP/MySQL application for managing student experi
 - [x] 2026-05-12: Compact grading access links
 - [x] 2026-05-12: Experiment overview click-to-edit
 - [x] 2026-05-12: Grading no-shows card
+- [x] 2026-05-13: Condition-scoped pool import guard
 - [ ] Migration from historical live database dump
 - [ ] Staff authentication
 
@@ -494,3 +495,38 @@ Observed on 2026-05-12:
 ### Next Steps
 
 - Browser-check the card with both selected and all-allowed experiments.
+
+## 2026-05-13: Condition-Scoped Pool Import Guard
+
+### Goal
+
+Prevent staff from importing misleading experiment-wide pool rows for experiments whose participations are assigned to conditions.
+
+### What Changed
+
+- Disabled the `Experimentweit` pool scope in the management pool modal when an experiment uses conditions.
+- Added modal help text explaining that condition CSV imports include both experiment-wide pool fields and condition-specific pool fields.
+- Added a server-side `CONDITION_POOL_REQUIRED` guard for direct `import_pool_rows` calls without a condition on conditioned experiments.
+- Added smoke-test coverage for the new guard.
+- Updated README and project context documentation.
+
+### How To Run
+
+Open `manage/index.html`, select a conditioned experiment with pool fields, and open `Zugangsdaten-Pool bereitstellen`.
+
+### How To Test
+
+- `php -l api/manage/actions.php`
+- `node --check manage/manage.js`
+- `php tests/validation_test.php`
+- `php tests/text_quality_test.php`
+- `php tests/api_smoke_test.php`
+
+### Known Issues And Decisions
+
+- A participation still reserves one bundled pool row. For conditioned experiments, duplicate experiment-wide values such as PID or survey link inside each condition-specific CSV when they need to stay coupled with condition-specific links.
+- Existing mistakenly imported experiment-wide rows are not deleted automatically.
+
+### Next Steps
+
+- Remove any unused experiment-wide pool rows from affected conditioned experiments before opening them to students.

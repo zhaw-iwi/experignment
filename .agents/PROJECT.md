@@ -322,8 +322,14 @@ Reduce cognitive load in the staff UI by replacing the single dense management s
 - Added participant-selection and condition-assignment modals:
   - participants can be selected as all globally allowed students, a seeded random subset of size N, or manual email search/add
   - assigned-condition experiments can assign selected students manually or by seeded percentage randomization, with percentages required to sum to 100
+- Aligned participant-selection modal method cards and changed their headings to verb phrases.
 - Added `save_eligibility_selection` and `save_condition_assignments` management actions.
+- Added guarded clear actions and management buttons for experiment participant selections and condition assignments.
 - Guarded participant subset saves and condition assignment saves so students with existing participations are not removed or reassigned inconsistently.
+- Added experiment-setup editing for `staff_entry` access-field values, backed by `eligibility_field_values` and copied into participations when access is opened.
+- Added `database/migrate_staff_values.sql` for existing V2 deployments.
+- Made the grading table derive optional columns from the selected experiment configuration and show the access reveal timestamp.
+- Moved pool provisioning into a dedicated card and CSV modal with generated sample rows, plus a guarded whole-pool clear action.
 - Changed experiment list items to expose a three-dot menu for editing, grading, and deletion.
 - Added the global allowed-student list to `api/manage/dashboard.php`.
 - Added `delete_allowed_student` in `api/manage/actions.php`; removal is blocked when a student already has participations.
@@ -331,7 +337,7 @@ Reduce cognitive load in the staff UI by replacing the single dense management s
 - Simplified `manage/manage.css` around Bootstrap cards, stacked views, and compact list items.
 - Expanded `tests/api_smoke_test.php` with allowlist list/removal and removal guard coverage.
 - Added smoke coverage that pool-sourced access fields do not persist shared values.
-- Added smoke coverage for participant subset saving, condition assignment saving, and participation-related guards.
+- Added smoke coverage for participant subset saving/clearing, condition assignment saving/clearing, staff-entered access values, and participation-related guards.
 - Updated README and context documentation for the new staff UI structure and config-file deployment choice.
 
 ### How To Run

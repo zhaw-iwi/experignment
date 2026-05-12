@@ -53,7 +53,7 @@ Eligibility modes:
 - `all_allowed`: every email in `allowed_students` can see and claim.
 - `selected`: only rows in `experiment_eligibilities` can see and claim.
 
-The staff UI manages experiment participation as a separate step from condition assignment. Participant selection can use all globally allowed students, a seeded random subset of size N, or manual email search/add from the global allowlist. For assigned-condition experiments, condition assignment is managed after the participant subset. Random condition assignment uses explicit percentages that must sum to 100 and a visible seed; manual assignment uses one condition selector per selected student. Students with existing participations must remain in the experiment participant subset, and their assigned condition cannot be changed through the bulk assignment UI.
+The staff UI manages experiment participation as a separate step from condition assignment. Participant selection can use all globally allowed students, a seeded random subset of size N, or manual email search/add from the global allowlist. For assigned-condition experiments, condition assignment is managed after the participant subset. Random condition assignment uses explicit percentages that must sum to 100 and a visible seed; manual assignment uses one condition selector per selected student. Participant selections and condition assignments can be cleared before participations exist. Students with existing participations must remain in the experiment participant subset, and their assigned condition cannot be changed or cleared through the bulk assignment UI.
 
 ## Access Information Model
 
@@ -64,18 +64,19 @@ The V2 model uses generic access fields:
 - `access_fields`: defines labels, keys, value types, visibility, source, and order.
 - `access_pool_rows`: bundled personalized access records.
 - `access_pool_values`: field values belonging to one bundle.
-- `participation_field_values`: manual/staff-entered field values when needed.
+- `eligibility_field_values`: staff-prepared field values for allowed/selected students before they open access.
+- `participation_field_values`: copied field values attached to the participation after access is opened.
 - `appointments`: final staff-assigned appointment text.
 
 Access field sources:
 
 - `shared`: same value for everyone, stored in `access_fields.shared_value`.
 - `pool`: assigned from a bundled row in `access_pool_rows`.
-- `staff_entry`: entered later by staff.
+- `staff_entry`: prepared by staff in experiment setup before any student opens access. Values are stored in `eligibility_field_values` and copied to `participation_field_values` when the student opens access; appointment-type fields use the dedicated appointment text flow.
 
 Bundled pool rows are important. If a student receives a PID, personalized survey link, and chatbot link, these values must stay coupled by one `access_pool_rows` record. Do not assign each value from independent pools.
 
-Pool import is experiment/condition-scoped, not tied to the currently edited field form. The pasted table must contain headers matching all saved pool-sourced field keys or labels for the selected condition.
+Pool import is experiment/condition-scoped, not tied to the currently edited field form. The management UI exposes a separate pool card when at least one saved access field uses `pool`; the modal generates a CSV sample from the applicable pool-sourced field keys. Importing replaces unassigned pool rows for the selected scope. The experiment pool can be cleared only while none of its rows has been assigned.
 
 Typical examples:
 
@@ -136,6 +137,8 @@ The management UI should support:
 
 The current V2 staff API is intentionally centralized in `api/manage/actions.php`, with dashboard data from `api/manage/dashboard.php`. The staff UI is organized into an experiment overview, a dedicated global allowlist view, an experiment editing view, and an experiment-specific grading view. Experiment states are shown in a top workflow strip. The global allowlist is reached from the editable student-count badge in the navbar instead of being part of the experiment hierarchy, and the navbar brand returns to the experiment overview.
 
+The grading view builds its table from the selected experiment configuration. It always shows who opened access information and when (`Zugang geöffnet`, backed by `participations.assigned_at`), and only shows condition, slot, read-only staff-entry access-field, and appointment columns when those features are configured for the experiment.
+
 ## Student UI Responsibilities
 
 The student UI should:
@@ -154,6 +157,7 @@ The student UI should:
 ## Important Files
 
 - `database/schema.sql`: canonical V2 schema.
+- `database/migrate_staff_values.sql`: migration for adding pre-participation staff-entry values to existing V2 databases.
 - `database/seed.sql`: real course allowlist only; no experiments or access data.
 - `database/seed_examples.sql`: self-contained demo/dev data with sample students, experiments, access fields, access pools, and slots.
 - `database/reset.sql`: resets runtime V2 state but keeps configured experiments, fields, pools, slots, and allowed students.
@@ -183,7 +187,7 @@ Run:
 - `php tests/text_quality_test.php`
 - `php tests/api_smoke_test.php`
 
-The API smoke test uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable. When SQLite support is available, it covers student claim/retrieval, slot choice capacity, management setup, allowlist removal guards, eligibility assignment, bundled pool import, confirmation, appointment retrieval, participation reset, and randomization.
+The API smoke test uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable. When SQLite support is available, it covers student claim/retrieval, slot choice capacity, management setup, allowlist removal guards, participant selection and clearing, condition assignment and clearing, bundled pool import, staff-entered access values, confirmation, appointment retrieval, participation reset, and randomization.
 
 On the current development machine as last observed:
 

@@ -154,6 +154,17 @@ function access_field_has_runtime_values(PDO $pdo, int $fieldId): bool
         return true;
     }
 
+    $preparedValues = count_rows(
+        $pdo,
+        'SELECT COUNT(*) AS row_count
+         FROM eligibility_field_values
+         WHERE field_id = :field_id',
+        ['field_id' => $fieldId]
+    );
+    if ($preparedValues > 0) {
+        return true;
+    }
+
     $manualValues = count_rows(
         $pdo,
         'SELECT COUNT(*) AS row_count
@@ -217,6 +228,33 @@ function participation_emails_for_experiment(PDO $pdo, int $experimentId): array
         static fn (array $row): string => (string) $row['student_email'],
         $statement->fetchAll()
     );
+}
+
+function participation_count_for_experiment(PDO $pdo, int $experimentId): int
+{
+    return count_rows(
+        $pdo,
+        'SELECT COUNT(*) AS row_count
+         FROM participations
+         WHERE experiment_id = :experiment_id',
+        ['experiment_id' => $experimentId]
+    );
+}
+
+function delete_randomization_runs_for_experiment(PDO $pdo, int $experimentId): void
+{
+    $deleteAllocations = $pdo->prepare(
+        'DELETE FROM randomization_run_allocations
+         WHERE run_id IN (
+             SELECT id
+             FROM randomization_runs
+             WHERE experiment_id = :experiment_id
+         )'
+    );
+    $deleteAllocations->execute(['experiment_id' => $experimentId]);
+
+    $deleteRuns = $pdo->prepare('DELETE FROM randomization_runs WHERE experiment_id = :experiment_id');
+    $deleteRuns->execute(['experiment_id' => $experimentId]);
 }
 
 function upsert_eligibility(PDO $pdo, int $experimentId, string $email, ?int $conditionId, string $source, bool $preserveExistingCondition = false): void
@@ -639,6 +677,9 @@ try {
         $conditionId = ensure_condition_for_experiment($pdo, nullable_int($payload['conditionId'] ?? null), $experimentId);
         $rawTable = (string) ($payload['table'] ?? '');
         [$headers, $rows] = parse_table_lines($rawTable);
+        if ($rows === []) {
+            fail(422, 'EMPTY_POOL_ROWS', 'Bitte fügen Sie mindestens eine Pool-Zeile ein.');
+        }
         $fields = fetch_pool_fields_for_import($pdo, $experimentId, $conditionId);
 
         $fieldByHeader = [];
@@ -662,7 +703,68 @@ try {
             }
         }
 
+        if ($conditionId === null) {
+            $assignedCount = count_rows(
+                $pdo,
+                'SELECT COUNT(*) AS row_count
+                 FROM access_pool_rows
+                 WHERE experiment_id = :experiment_id
+                   AND condition_id IS NULL
+                   AND is_assigned = 1',
+                ['experiment_id' => $experimentId]
+            );
+        } else {
+            $assignedCount = count_rows(
+                $pdo,
+                'SELECT COUNT(*) AS row_count
+                 FROM access_pool_rows
+                 WHERE experiment_id = :experiment_id
+                   AND condition_id = :condition_id
+                   AND is_assigned = 1',
+                ['experiment_id' => $experimentId, 'condition_id' => $conditionId]
+            );
+        }
+        if ($assignedCount > 0) {
+            fail(409, 'POOL_HAS_ASSIGNMENTS', 'Dieser Pool kann nicht ersetzt werden, weil bereits Zugangsdaten zugewiesen wurden.');
+        }
+
         $pdo->beginTransaction();
+        if ($conditionId === null) {
+            $deleteValues = $pdo->prepare(
+                'DELETE FROM access_pool_values
+                 WHERE pool_row_id IN (
+                     SELECT id
+                     FROM access_pool_rows
+                     WHERE experiment_id = :experiment_id
+                       AND condition_id IS NULL
+                 )'
+            );
+            $deleteValues->execute(['experiment_id' => $experimentId]);
+            $deleteRows = $pdo->prepare(
+                'DELETE FROM access_pool_rows
+                 WHERE experiment_id = :experiment_id
+                   AND condition_id IS NULL'
+            );
+            $deleteRows->execute(['experiment_id' => $experimentId]);
+        } else {
+            $deleteValues = $pdo->prepare(
+                'DELETE FROM access_pool_values
+                 WHERE pool_row_id IN (
+                     SELECT id
+                     FROM access_pool_rows
+                     WHERE experiment_id = :experiment_id
+                       AND condition_id = :condition_id
+                 )'
+            );
+            $deleteValues->execute(['experiment_id' => $experimentId, 'condition_id' => $conditionId]);
+            $deleteRows = $pdo->prepare(
+                'DELETE FROM access_pool_rows
+                 WHERE experiment_id = :experiment_id
+                   AND condition_id = :condition_id'
+            );
+            $deleteRows->execute(['experiment_id' => $experimentId, 'condition_id' => $conditionId]);
+        }
+
         $poolInsert = $pdo->prepare(
             'INSERT INTO access_pool_rows (experiment_id, condition_id)
              VALUES (:experiment_id, :condition_id)'
@@ -720,6 +822,48 @@ try {
 
         delete_by_id($pdo, 'access_pool_rows', $poolRowId);
         json_response(200, ['poolRowId' => $poolRowId, 'deleted' => true]);
+    }
+
+    if ($action === 'clear_access_pool_rows') {
+        $experimentId = required_int($payload['experimentId'] ?? null, 'INVALID_EXPERIMENT', 'Bitte wählen Sie ein Experiment aus.');
+        if (fetch_experiment($pdo, $experimentId) === null) {
+            fail(404, 'EXPERIMENT_NOT_FOUND', 'Das Experiment wurde nicht gefunden.');
+        }
+        $assignedCount = count_rows(
+            $pdo,
+            'SELECT COUNT(*) AS row_count
+             FROM access_pool_rows
+             WHERE experiment_id = :experiment_id
+               AND is_assigned = 1',
+            ['experiment_id' => $experimentId]
+        );
+        if ($assignedCount > 0) {
+            fail(409, 'POOL_HAS_ASSIGNMENTS', 'Dieser Pool kann nicht gelöscht werden, weil bereits Zugangsdaten zugewiesen wurden.');
+        }
+
+        $rowCount = count_rows(
+            $pdo,
+            'SELECT COUNT(*) AS row_count
+             FROM access_pool_rows
+             WHERE experiment_id = :experiment_id',
+            ['experiment_id' => $experimentId]
+        );
+
+        $pdo->beginTransaction();
+        $deleteValues = $pdo->prepare(
+            'DELETE FROM access_pool_values
+             WHERE pool_row_id IN (
+                 SELECT id
+                 FROM access_pool_rows
+                 WHERE experiment_id = :experiment_id
+             )'
+        );
+        $deleteValues->execute(['experiment_id' => $experimentId]);
+        $deleteRows = $pdo->prepare('DELETE FROM access_pool_rows WHERE experiment_id = :experiment_id');
+        $deleteRows->execute(['experiment_id' => $experimentId]);
+        $pdo->commit();
+
+        json_response(200, ['experimentId' => $experimentId, 'deletedCount' => $rowCount]);
     }
 
     if ($action === 'save_slot') {
@@ -855,10 +999,29 @@ try {
         $statement->execute(['id' => $experimentId, 'mode' => $mode]);
 
         if ($emails === []) {
+            $deleteValues = $pdo->prepare(
+                'DELETE FROM eligibility_field_values
+                 WHERE eligibility_id IN (
+                     SELECT id
+                     FROM experiment_eligibilities
+                     WHERE experiment_id = :experiment_id
+                 )'
+            );
+            $deleteValues->execute(['experiment_id' => $experimentId]);
             $delete = $pdo->prepare('DELETE FROM experiment_eligibilities WHERE experiment_id = :experiment_id');
             $delete->execute(['experiment_id' => $experimentId]);
         } else {
             $placeholders = implode(', ', array_fill(0, count($emails), '?'));
+            $deleteValues = $pdo->prepare(
+                'DELETE FROM eligibility_field_values
+                 WHERE eligibility_id IN (
+                     SELECT id
+                     FROM experiment_eligibilities
+                     WHERE experiment_id = ?
+                       AND student_email NOT IN (' . $placeholders . ')
+                 )'
+            );
+            $deleteValues->execute(array_merge([$experimentId], $emails));
             $delete = $pdo->prepare(
                 'DELETE FROM experiment_eligibilities
                  WHERE experiment_id = ?
@@ -872,6 +1035,35 @@ try {
         }
         $pdo->commit();
         json_response(200, ['mode' => $mode, 'selectedCount' => count($emails)]);
+    }
+
+    if ($action === 'clear_eligibility_selection') {
+        $experimentId = required_int($payload['experimentId'] ?? null, 'INVALID_EXPERIMENT', 'Bitte wählen Sie ein Experiment aus.');
+        if (fetch_experiment($pdo, $experimentId) === null) {
+            fail(404, 'EXPERIMENT_NOT_FOUND', 'Das Experiment wurde nicht gefunden.');
+        }
+        if (participation_count_for_experiment($pdo, $experimentId) > 0) {
+            fail(409, 'ELIGIBILITY_SELECTION_HAS_PARTICIPATIONS', 'Diese Auswahl kann nicht aufgehoben werden, weil bereits Studierende eine Zuweisung haben.');
+        }
+
+        $pdo->beginTransaction();
+        $update = $pdo->prepare('UPDATE experiments SET eligibility_mode = :mode WHERE id = :id');
+        $update->execute(['id' => $experimentId, 'mode' => 'selected']);
+        $deleteValues = $pdo->prepare(
+            'DELETE FROM eligibility_field_values
+             WHERE eligibility_id IN (
+                 SELECT id
+                 FROM experiment_eligibilities
+                 WHERE experiment_id = :experiment_id
+             )'
+        );
+        $deleteValues->execute(['experiment_id' => $experimentId]);
+        $deleteEligibilities = $pdo->prepare('DELETE FROM experiment_eligibilities WHERE experiment_id = :experiment_id');
+        $deleteEligibilities->execute(['experiment_id' => $experimentId]);
+        delete_randomization_runs_for_experiment($pdo, $experimentId);
+        $pdo->commit();
+
+        json_response(200, ['experimentId' => $experimentId, 'cleared' => true, 'selectedCount' => 0]);
     }
 
     if ($action === 'save_condition_assignments') {
@@ -918,6 +1110,190 @@ try {
         json_response(200, ['assignedCount' => count($normalizedAssignments)]);
     }
 
+    if ($action === 'clear_condition_assignments') {
+        $experimentId = required_int($payload['experimentId'] ?? null, 'INVALID_EXPERIMENT', 'Bitte wählen Sie ein Experiment aus.');
+        $experiment = fetch_experiment($pdo, $experimentId);
+        if ($experiment === null) {
+            fail(404, 'EXPERIMENT_NOT_FOUND', 'Das Experiment wurde nicht gefunden.');
+        }
+        if (participation_count_for_experiment($pdo, $experimentId) > 0) {
+            fail(409, 'CONDITION_ASSIGNMENT_HAS_PARTICIPATIONS', 'Diese Bedingungszuweisung kann nicht aufgehoben werden, weil bereits Studierende eine Zuweisung haben.');
+        }
+
+        $pdo->beginTransaction();
+        $deleteValues = $pdo->prepare(
+            'DELETE FROM eligibility_field_values
+             WHERE eligibility_id IN (
+                 SELECT id
+                 FROM experiment_eligibilities
+                 WHERE experiment_id = :experiment_id
+             )'
+        );
+        $deleteValues->execute(['experiment_id' => $experimentId]);
+        if ($experiment['eligibility_mode'] === 'all_allowed') {
+            $deleteEligibilities = $pdo->prepare('DELETE FROM experiment_eligibilities WHERE experiment_id = :experiment_id');
+            $deleteEligibilities->execute(['experiment_id' => $experimentId]);
+        } else {
+            $clearAssignments = $pdo->prepare(
+                'UPDATE experiment_eligibilities
+                 SET condition_id = NULL,
+                     source = :source
+                 WHERE experiment_id = :experiment_id'
+            );
+            $clearAssignments->execute([
+                'experiment_id' => $experimentId,
+                'source' => 'manual',
+            ]);
+        }
+        delete_randomization_runs_for_experiment($pdo, $experimentId);
+        $pdo->commit();
+
+        json_response(200, ['experimentId' => $experimentId, 'cleared' => true]);
+    }
+
+    if ($action === 'save_staff_eligibility_field_values') {
+        $experimentId = required_int($payload['experimentId'] ?? null, 'INVALID_EXPERIMENT', 'Bitte wählen Sie ein Experiment aus.');
+        $rows = is_array($payload['rows'] ?? null) ? $payload['rows'] : [];
+        $experiment = fetch_experiment($pdo, $experimentId);
+        if ($experiment === null) {
+            fail(404, 'EXPERIMENT_NOT_FOUND', 'Das Experiment wurde nicht gefunden.');
+        }
+        if (participation_count_for_experiment($pdo, $experimentId) > 0) {
+            fail(409, 'STAFF_VALUES_HAVE_PARTICIPATIONS', 'Staff-Zugangsdaten können nicht mehr geändert werden, nachdem Studierende Zugang geöffnet haben.');
+        }
+
+        $fieldLookup = $pdo->prepare(
+            'SELECT *
+             FROM access_fields
+             WHERE experiment_id = :experiment_id
+               AND value_source = :value_source
+               AND value_type <> :appointment_type
+             ORDER BY sort_order ASC, id ASC'
+        );
+        $fieldLookup->execute([
+            'experiment_id' => $experimentId,
+            'value_source' => 'staff_entry',
+            'appointment_type' => 'appointment',
+        ]);
+        $staffFields = [];
+        foreach ($fieldLookup->fetchAll() as $field) {
+            $staffFields[(int) $field['id']] = $field;
+        }
+        if ($staffFields === []) {
+            fail(422, 'NO_STAFF_ENTRY_FIELDS', 'Für dieses Experiment sind keine Staff-Zugangsfelder definiert.');
+        }
+
+        $normalizedRows = [];
+        foreach ($rows as $row) {
+            $email = normalize_student_email((string) ($row['email'] ?? ''));
+            require_allowed_student($pdo, $email);
+            $eligibility = fetch_eligibility($pdo, $experimentId, $email);
+            if ($experiment['eligibility_mode'] === 'selected' && $eligibility === null) {
+                fail(409, 'STUDENT_NOT_SELECTED', 'Diese Person ist nicht für das Experiment freigegeben.');
+            }
+            $conditionId = $eligibility !== null ? nullable_int($eligibility['condition_id'] ?? null) : null;
+
+            $values = is_array($row['values'] ?? null) ? $row['values'] : [];
+            $normalizedValues = [];
+            foreach ($values as $valueRow) {
+                $fieldId = required_int($valueRow['fieldId'] ?? null, 'INVALID_FIELD', 'Bitte wählen Sie ein Zugangsfeld aus.');
+                if (!isset($staffFields[$fieldId])) {
+                    fail(422, 'FIELD_NOT_STAFF_ENTRY', 'Dieses Feld kann nicht durch Staff vorbereitet werden.');
+                }
+                $fieldConditionId = nullable_int($staffFields[$fieldId]['condition_id'] ?? null);
+                if ($fieldConditionId !== null && $fieldConditionId !== $conditionId) {
+                    fail(422, 'FIELD_NOT_APPLICABLE', 'Dieses Feld gehört nicht zur Bedingung der ausgewählten Person.');
+                }
+                $normalizedValues[$fieldId] = clean_text($valueRow['value'] ?? '');
+            }
+
+            $normalizedRows[$email] = $normalizedValues;
+        }
+
+        $pdo->beginTransaction();
+        $eligibilityLookup = $pdo->prepare(
+            'SELECT *
+             FROM experiment_eligibilities
+             WHERE experiment_id = :experiment_id
+               AND student_email = :student_email
+             LIMIT 1'
+        );
+        $valueLookup = $pdo->prepare(
+            'SELECT id
+             FROM eligibility_field_values
+             WHERE eligibility_id = :eligibility_id
+               AND field_id = :field_id
+             LIMIT 1'
+        );
+        $insertValue = $pdo->prepare(
+            'INSERT INTO eligibility_field_values (eligibility_id, field_id, field_value)
+             VALUES (:eligibility_id, :field_id, :field_value)'
+        );
+        $updateValue = $pdo->prepare(
+            'UPDATE eligibility_field_values
+             SET field_value = :field_value
+             WHERE eligibility_id = :eligibility_id
+               AND field_id = :field_id'
+        );
+        $deleteValue = $pdo->prepare(
+            'DELETE FROM eligibility_field_values
+             WHERE eligibility_id = :eligibility_id
+               AND field_id = :field_id'
+        );
+
+        $savedCount = 0;
+        foreach ($normalizedRows as $email => $values) {
+            $eligibilityLookup->execute([
+                'experiment_id' => $experimentId,
+                'student_email' => $email,
+            ]);
+            $eligibility = $eligibilityLookup->fetch();
+            $hasValue = count(array_filter($values, static fn (string $fieldValue): bool => $fieldValue !== '')) > 0;
+            if ($eligibility === false && !$hasValue) {
+                continue;
+            }
+            if ($eligibility === false) {
+                upsert_eligibility($pdo, $experimentId, $email, null, 'manual', true);
+                $eligibilityLookup->execute([
+                    'experiment_id' => $experimentId,
+                    'student_email' => $email,
+                ]);
+                $eligibility = $eligibilityLookup->fetch();
+                if ($eligibility === false) {
+                    throw new RuntimeException('Eligibility upsert failed.');
+                }
+            }
+            $eligibilityId = (int) $eligibility['id'];
+
+            foreach ($values as $fieldId => $fieldValue) {
+                $valueLookup->execute([
+                    'eligibility_id' => $eligibilityId,
+                    'field_id' => $fieldId,
+                ]);
+                $existingValue = $valueLookup->fetch();
+
+                if ($fieldValue === '') {
+                    $deleteValue->execute([
+                        'eligibility_id' => $eligibilityId,
+                        'field_id' => $fieldId,
+                    ]);
+                    continue;
+                }
+
+                $statement = $existingValue === false ? $insertValue : $updateValue;
+                $statement->execute([
+                    'eligibility_id' => $eligibilityId,
+                    'field_id' => $fieldId,
+                    'field_value' => $fieldValue,
+                ]);
+                $savedCount++;
+            }
+        }
+        $pdo->commit();
+
+        json_response(200, ['experimentId' => $experimentId, 'savedCount' => $savedCount]);
+    }
+
     if ($action === 'assign_student') {
         $email = normalize_student_email((string) ($payload['email'] ?? ''));
         $experimentId = required_int($payload['experimentId'] ?? null, 'INVALID_EXPERIMENT', 'Bitte wählen Sie ein Experiment aus.');
@@ -955,6 +1331,8 @@ try {
 
     if ($action === 'delete_eligibility') {
         $eligibilityId = required_int($payload['eligibilityId'] ?? null, 'INVALID_ELIGIBILITY', 'Bitte wählen Sie eine Freigabe aus.');
+        $deleteValues = $pdo->prepare('DELETE FROM eligibility_field_values WHERE eligibility_id = :eligibility_id');
+        $deleteValues->execute(['eligibility_id' => $eligibilityId]);
         if (!delete_by_id($pdo, 'experiment_eligibilities', $eligibilityId)) {
             fail(404, 'ELIGIBILITY_NOT_FOUND', 'Die Freigabe wurde nicht gefunden.');
         }
@@ -1011,6 +1389,15 @@ try {
         $counts = allocation_counts($normalizedAllocations, count($emails));
 
         $pdo->beginTransaction();
+        $deleteValues = $pdo->prepare(
+            'DELETE FROM eligibility_field_values
+             WHERE eligibility_id IN (
+                 SELECT id
+                 FROM experiment_eligibilities
+                 WHERE experiment_id = :experiment_id
+             )'
+        );
+        $deleteValues->execute(['experiment_id' => $experimentId]);
         $delete = $pdo->prepare('DELETE FROM experiment_eligibilities WHERE experiment_id = :experiment_id');
         $delete->execute(['experiment_id' => $experimentId]);
 
@@ -1119,6 +1506,7 @@ try {
         json_response(200, ['participationId' => $participationId, 'appointmentText' => $appointmentText]);
     }
 
+
     if ($action === 'reset_participation') {
         $participationId = required_int($payload['participationId'] ?? null, 'INVALID_PARTICIPATION', 'Bitte wählen Sie eine Zuweisung aus.');
         $releaseAccess = bool_value($payload['releaseAccess'] ?? true);
@@ -1131,6 +1519,9 @@ try {
         }
 
         $pdo->beginTransaction();
+        $deleteFieldValues = $pdo->prepare('DELETE FROM participation_field_values WHERE participation_id = :participation_id');
+        $deleteFieldValues->execute(['participation_id' => $participationId]);
+
         $poolRowId = nullable_int($participation['access_pool_row_id'] ?? null);
         if ($poolRowId !== null) {
             $release = $pdo->prepare(

@@ -10,6 +10,7 @@ PHP/MySQL web app for assigning experiment access information to ZHAW students a
 - `api/`: student and staff JSON endpoints
 - `config/config.php`: deployment database configuration
 - `database/schema.sql`: V2 schema
+- `database/migrate_staff_values.sql`: V2 migration for staff-prepared access values
 - `database/seed.sql`: real course allowlist only
 - `database/seed_examples.sql`: optional sample V2 experiments and access data
 - `database/reset.sql`: reset runtime V2 state
@@ -27,6 +28,8 @@ mysql -u USER -p DATABASE < database/seed.sql
 ```
 
 `seed.sql` contains only the current real `allowed_students` list. Use `database/seed_examples.sql` only for a throwaway/demo database because it creates example experiments, fields, access pools, and slots.
+
+Existing V2 databases need `database/migrate_staff_values.sql` once before deploying versions with staff-prepared access values.
 
 ## Configuration
 
@@ -59,10 +62,14 @@ It supports:
 - adding conditions
 - deleting unused conditions
 - selecting experiment participants from the global allowlist by all, seeded random subset, or manual email search
+- clearing an experiment-specific participant selection before participations exist
 - assigning selected participants to conditions manually or by seeded percentage randomization
+- clearing condition assignments before participations exist
 - defining access fields
 - deleting access fields
-- importing bundled access pool rows
+- preparing bundled access pool rows through a guided CSV modal
+- clearing unassigned access pool data
+- preparing student-specific values for access fields sourced from staff entry before access is revealed
 - viewing and deleting unassigned access pool rows
 - manually assigning students
 - viewing and removing experiment-specific eligibilities
@@ -73,6 +80,7 @@ It supports:
 - deleting unused time slots
 - opening experiment-specific editing from the overview
 - opening experiment-specific grading from the overview
+- showing the access reveal time and prepared staff-entry values in grading while limiting columns to configured experiment features
 - setting appointment text
 - resetting participations
 - toggling `Angerechnet`
@@ -92,4 +100,4 @@ php tests/api_smoke_test.php
 ```
 
 `api_smoke_test.php` uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable.
-When SQLite support is available, it covers the student claim/retrieval flow, slot capacity enforcement, management setup actions, allowlist removal guards, eligibility assignment, access-pool import, confirmation, appointment retrieval, reset, and randomization.
+When SQLite support is available, it covers the student claim/retrieval flow, slot capacity enforcement, management setup actions, allowlist removal guards, participant selection and clearing, condition assignment and clearing, access-pool import, staff-entered access values, confirmation, appointment retrieval, reset, and randomization.

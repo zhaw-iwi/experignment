@@ -99,6 +99,12 @@ $eligibilityListStatement = $pdo->prepare(
      ORDER BY ee.student_email ASC
      LIMIT 1000'
 );
+$eligibilityFieldValueStatement = $pdo->prepare(
+    'SELECT field_id, field_value
+     FROM eligibility_field_values
+     WHERE eligibility_id = :eligibility_id
+     ORDER BY field_id ASC'
+);
 $poolRowsStatement = $pdo->prepare(
     'SELECT apr.id, apr.condition_id, apr.is_assigned, apr.assigned_participation_id, apr.assigned_at,
             ec.public_name AS condition_name,
@@ -129,6 +135,12 @@ $slotChoicesStatement = $pdo->prepare(
      LEFT JOIN appointments a ON a.participation_id = p.id
      WHERE ts.experiment_id = :experiment_id
      ORDER BY ts.sort_order ASC, ts.id ASC, p.student_email ASC'
+);
+$participationFieldValueStatement = $pdo->prepare(
+    'SELECT field_id, field_value
+     FROM participation_field_values
+     WHERE participation_id = :participation_id
+     ORDER BY field_id ASC'
 );
 
 foreach ($experimentRows as $experiment) {
@@ -205,6 +217,15 @@ foreach ($experimentRows as $experiment) {
     $eligibilityListStatement->execute(['experiment_id' => $experimentId]);
     $eligibilities = [];
     foreach ($eligibilityListStatement->fetchAll() as $eligibility) {
+        $eligibilityFieldValueStatement->execute(['eligibility_id' => (int) $eligibility['id']]);
+        $fieldValues = [];
+        foreach ($eligibilityFieldValueStatement->fetchAll() as $fieldValue) {
+            $fieldValues[] = [
+                'fieldId' => (int) $fieldValue['field_id'],
+                'value' => $fieldValue['field_value'],
+            ];
+        }
+
         $eligibilities[] = [
             'id' => (int) $eligibility['id'],
             'email' => $eligibility['student_email'],
@@ -213,6 +234,7 @@ foreach ($experimentRows as $experiment) {
             'source' => $eligibility['source'],
             'createdAt' => $eligibility['created_at'],
             'hasParticipation' => nullable_int($eligibility['participation_id'] ?? null) !== null,
+            'fieldValues' => $fieldValues,
         ];
     }
 
@@ -300,6 +322,15 @@ $participationRows = $pdo->query(
 
 $participations = [];
 foreach ($participationRows as $row) {
+    $participationFieldValueStatement->execute(['participation_id' => (int) $row['id']]);
+    $fieldValues = [];
+    foreach ($participationFieldValueStatement->fetchAll() as $fieldValue) {
+        $fieldValues[] = [
+            'fieldId' => (int) $fieldValue['field_id'],
+            'value' => $fieldValue['field_value'],
+        ];
+    }
+
     $participations[] = [
         'id' => (int) $row['id'],
         'email' => $row['student_email'],
@@ -312,6 +343,7 @@ foreach ($participationRows as $row) {
         'confirmedAt' => $row['confirmed_at'],
         'slotLabel' => $row['slot_label'],
         'appointmentText' => $row['appointment_text'],
+        'fieldValues' => $fieldValues,
     ];
 }
 

@@ -480,6 +480,41 @@ function fetch_participation_field_values(PDO $pdo, int $participationId): array
     return $values;
 }
 
+function copy_eligibility_field_values_to_participation(PDO $pdo, int $participationId, int $eligibilityId, int $experimentId, ?int $conditionId): void
+{
+    $fieldIds = [];
+    foreach (fetch_access_fields($pdo, $experimentId, $conditionId, false) as $field) {
+        if ($field['value_source'] === 'staff_entry' && $field['value_type'] !== 'appointment') {
+            $fieldIds[] = (int) $field['id'];
+        }
+    }
+
+    if ($fieldIds === []) {
+        return;
+    }
+
+    $placeholders = implode(', ', array_fill(0, count($fieldIds), '?'));
+    $lookup = $pdo->prepare(
+        'SELECT field_id, field_value
+         FROM eligibility_field_values
+         WHERE eligibility_id = ?
+           AND field_id IN (' . $placeholders . ')'
+    );
+    $lookup->execute(array_merge([$eligibilityId], $fieldIds));
+
+    $insert = $pdo->prepare(
+        'INSERT INTO participation_field_values (participation_id, field_id, field_value)
+         VALUES (:participation_id, :field_id, :field_value)'
+    );
+    foreach ($lookup->fetchAll() as $valueRow) {
+        $insert->execute([
+            'participation_id' => $participationId,
+            'field_id' => (int) $valueRow['field_id'],
+            'field_value' => $valueRow['field_value'],
+        ]);
+    }
+}
+
 function fetch_appointment_text(PDO $pdo, int $participationId): ?string
 {
     $statement = $pdo->prepare(

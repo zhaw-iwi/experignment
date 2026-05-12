@@ -110,6 +110,19 @@ function dashboard_access_field_by_key(array $dashboard, int $experimentId, stri
     throw new RuntimeException('Access field not found in dashboard: ' . $key);
 }
 
+function dashboard_assigned_condition_count(array $dashboard, int $experimentId): int
+{
+    $experiment = experiment_by_id($dashboard, $experimentId);
+    $count = 0;
+    foreach ($experiment['eligibilities'] ?? [] as $eligibility) {
+        if (($eligibility['conditionId'] ?? null) !== null) {
+            $count++;
+        }
+    }
+
+    return $count;
+}
+
 function access_item_by_key(array $experiment, string $key): array
 {
     foreach ($experiment['accessItems'] ?? [] as $item) {
@@ -174,6 +187,14 @@ function setup_sqlite_database(string $dbPath): void
         sort_order INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )');
+    $pdo->exec('CREATE TABLE eligibility_field_values (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        eligibility_id INTEGER NOT NULL,
+        field_id INTEGER NOT NULL,
+        field_value TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(eligibility_id, field_id)
     )');
     $pdo->exec('CREATE TABLE access_pool_rows (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -508,6 +529,61 @@ try {
     assert_equals($managedDashboardExperiment['counts']['eligibilities'] ?? null, 2, 'dashboard should report selected participant count');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'clear_condition_assignments',
+        'experimentId' => $managedExperimentId,
+    ]);
+    assert_equals($response['status'], 200, 'management should clear condition assignments before participations');
+
+    $response = make_request($baseUrl, 'GET', '/api/manage/dashboard.php');
+    assert_equals($response['status'], 200, 'dashboard should load after condition assignment clearing');
+    $managedDashboardExperiment = experiment_by_id($response['body'] ?? [], $managedExperimentId);
+    assert_equals($managedDashboardExperiment['counts']['eligibilities'] ?? null, 2, 'condition clearing should keep participant selection');
+    assert_equals(dashboard_assigned_condition_count($response['body'] ?? [], $managedExperimentId), 0, 'condition clearing should remove every assigned condition');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_condition_assignments',
+        'experimentId' => $managedExperimentId,
+        'source' => 'manual',
+        'assignments' => [
+            ['email' => 'dana@students.zhaw.ch', 'conditionId' => $managedConditionId],
+            ['email' => 'erik@students.zhaw.ch', 'conditionId' => $managedSecondConditionId],
+        ],
+    ]);
+    assert_equals($response['status'], 200, 'management should restore condition assignments after clearing');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'clear_eligibility_selection',
+        'experimentId' => $managedExperimentId,
+    ]);
+    assert_equals($response['status'], 200, 'management should clear participant selection before participations');
+    assert_equals($response['body']['selectedCount'] ?? null, 0, 'participant clearing should report zero selected students');
+
+    $response = make_request($baseUrl, 'GET', '/api/manage/dashboard.php');
+    assert_equals($response['status'], 200, 'dashboard should load after participant selection clearing');
+    $managedDashboardExperiment = experiment_by_id($response['body'] ?? [], $managedExperimentId);
+    assert_equals($managedDashboardExperiment['eligibilityMode'] ?? null, 'selected', 'participant clearing should leave experiment in selected mode');
+    assert_equals($managedDashboardExperiment['counts']['eligibilities'] ?? null, 0, 'participant clearing should remove experiment eligibilities');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_eligibility_selection',
+        'experimentId' => $managedExperimentId,
+        'mode' => 'selected',
+        'emails' => ['dana@students.zhaw.ch', 'erik@students.zhaw.ch'],
+    ]);
+    assert_equals($response['status'], 200, 'management should restore participant subset after clearing');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_condition_assignments',
+        'experimentId' => $managedExperimentId,
+        'source' => 'manual',
+        'assignments' => [
+            ['email' => 'dana@students.zhaw.ch', 'conditionId' => $managedConditionId],
+            ['email' => 'erik@students.zhaw.ch', 'conditionId' => $managedSecondConditionId],
+        ],
+    ]);
+    assert_equals($response['status'], 200, 'management should restore assignments after participant selection clearing');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'save_access_field',
         'experimentId' => $managedExperimentId,
         'conditionId' => $managedConditionId,
@@ -523,10 +599,58 @@ try {
     $managedFieldId = (int) ($response['body']['fieldId'] ?? 0);
     assert_true($managedFieldId > 0, 'created field id should be present');
 
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_access_field',
+        'experimentId' => $managedExperimentId,
+        'conditionId' => $managedConditionId,
+        'label' => 'Staff Code',
+        'fieldKey' => 'staff_code',
+        'valueType' => 'text',
+        'valueSource' => 'staff_entry',
+        'sharedValue' => 'should-not-be-stored',
+        'isVisible' => true,
+        'sortOrder' => 20,
+    ]);
+    assert_equals($response['status'], 201, 'management should create staff-entry access field');
+    $managedStaffFieldId = (int) ($response['body']['fieldId'] ?? 0);
+    assert_true($managedStaffFieldId > 0, 'created staff-entry field id should be present');
+
     $response = make_request($baseUrl, 'GET', '/api/manage/dashboard.php');
-    assert_equals($response['status'], 200, 'dashboard should load after pool field creation');
+    assert_equals($response['status'], 200, 'dashboard should load after access field creation');
     $managedField = dashboard_access_field_by_key($response['body'] ?? [], $managedExperimentId, 'managed_pid');
     assert_equals($managedField['sharedValue'] ?? null, null, 'pool fields should not store shared values');
+    $managedStaffField = dashboard_access_field_by_key($response['body'] ?? [], $managedExperimentId, 'staff_code');
+    assert_equals($managedStaffField['sharedValue'] ?? null, null, 'staff-entry fields should not store shared values');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_staff_eligibility_field_values',
+        'experimentId' => $managedExperimentId,
+        'rows' => [
+            [
+                'email' => 'dana@students.zhaw.ch',
+                'values' => [
+                    ['fieldId' => $managedStaffFieldId, 'value' => 'Staff-001'],
+                ],
+            ],
+        ],
+    ]);
+    assert_equals($response['status'], 200, 'management should prepare staff-entered access field values');
+    assert_equals($response['body']['savedCount'] ?? null, 1, 'one staff-entered access field should be prepared');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_staff_eligibility_field_values',
+        'experimentId' => $managedExperimentId,
+        'rows' => [
+            [
+                'email' => 'dana@students.zhaw.ch',
+                'values' => [
+                    ['fieldId' => $managedFieldId, 'value' => 'not-editable'],
+                ],
+            ],
+        ],
+    ]);
+    assert_equals($response['status'], 422, 'pool fields should not be editable as staff-entry fields');
+    assert_equals($response['body']['error_code'] ?? null, 'FIELD_NOT_STAFF_ENTRY', 'staff-entry field guard should be explicit');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'import_pool_rows',
@@ -537,6 +661,22 @@ try {
     assert_equals($response['status'], 201, 'management should import access pool rows');
     assert_true(is_array($response['body']), 'pool import response should be JSON: ' . $response['raw']);
     assert_equals($response['body']['imported'] ?? null, 1, 'one pool row should be imported');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'clear_access_pool_rows',
+        'experimentId' => $managedExperimentId,
+    ]);
+    assert_equals($response['status'], 200, 'management should clear unassigned access pool rows');
+    assert_equals($response['body']['deletedCount'] ?? null, 1, 'one unassigned pool row should be cleared');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'import_pool_rows',
+        'experimentId' => $managedExperimentId,
+        'conditionId' => $managedConditionId,
+        'table' => "managed_pid\nM001",
+    ]);
+    assert_equals($response['status'], 201, 'management should re-import access pool rows after clearing');
+    assert_equals($response['body']['imported'] ?? null, 1, 'one pool row should be re-imported');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'assign_student',
@@ -554,11 +694,38 @@ try {
     $managedExperiment = experiment_by_id($response['body']['overview'] ?? [], $managedExperimentId);
     assert_equals($managedExperiment['condition']['id'] ?? null, $managedConditionId, 'claim should use assigned condition');
     assert_equals(access_item_by_key($managedExperiment, 'managed_pid')['value'] ?? null, 'M001', 'claim should expose imported pool value');
+    assert_equals(access_item_by_key($managedExperiment, 'staff_code')['value'] ?? null, 'Staff-001', 'claim should expose prepared staff-entered value');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'clear_access_pool_rows',
+        'experimentId' => $managedExperimentId,
+    ]);
+    assert_equals($response['status'], 409, 'management should not clear assigned access pool rows');
+    assert_equals($response['body']['error_code'] ?? null, 'POOL_HAS_ASSIGNMENTS', 'assigned pool clear guard should be explicit');
 
     $response = make_request($baseUrl, 'GET', '/api/manage/dashboard.php');
     assert_equals($response['status'], 200, 'dashboard should load after managed claim');
     $managedParticipation = dashboard_participation($response['body'] ?? [], 'dana@students.zhaw.ch', $managedExperimentId);
     $managedParticipationId = (int) $managedParticipation['id'];
+    assert_true(
+        is_string($managedParticipation['assignedAt'] ?? null) && $managedParticipation['assignedAt'] !== '',
+        'dashboard should expose the access reveal time for grading'
+    );
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_staff_eligibility_field_values',
+        'experimentId' => $managedExperimentId,
+        'rows' => [
+            [
+                'email' => 'dana@students.zhaw.ch',
+                'values' => [
+                    ['fieldId' => $managedStaffFieldId, 'value' => 'late-change'],
+                ],
+            ],
+        ],
+    ]);
+    assert_equals($response['status'], 409, 'prepared staff values should be locked after access reveal');
+    assert_equals($response['body']['error_code'] ?? null, 'STAFF_VALUES_HAVE_PARTICIPATIONS', 'prepared staff value lock should be explicit');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'save_eligibility_selection',
@@ -567,6 +734,7 @@ try {
         'emails' => ['erik@students.zhaw.ch'],
     ]);
     assert_equals($response['status'], 409, 'participant subset should keep students with participations');
+    assert_equals($response['body']['error_code'] ?? null, 'ELIGIBILITY_SELECTION_HAS_PARTICIPATIONS', 'participant subset guard should be explicit');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'save_condition_assignments',
@@ -577,6 +745,21 @@ try {
         ],
     ]);
     assert_equals($response['status'], 409, 'condition assignment should not change after participation exists');
+    assert_equals($response['body']['error_code'] ?? null, 'CONDITION_ASSIGNMENT_HAS_PARTICIPATION', 'condition assignment guard should be explicit');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'clear_eligibility_selection',
+        'experimentId' => $managedExperimentId,
+    ]);
+    assert_equals($response['status'], 409, 'participant selection clearing should be blocked after participation exists');
+    assert_equals($response['body']['error_code'] ?? null, 'ELIGIBILITY_SELECTION_HAS_PARTICIPATIONS', 'participant clearing guard should be explicit');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'clear_condition_assignments',
+        'experimentId' => $managedExperimentId,
+    ]);
+    assert_equals($response['status'], 409, 'condition assignment clearing should be blocked after participation exists');
+    assert_equals($response['body']['error_code'] ?? null, 'CONDITION_ASSIGNMENT_HAS_PARTICIPATIONS', 'condition clearing guard should be explicit');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'toggle_confirmation',

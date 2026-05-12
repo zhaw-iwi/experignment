@@ -219,24 +219,32 @@
                     </div>
                 </form>
 
-                <section id="poolImportSection" class="d-none">
+                <section id="staffValueSection" class="d-none">
                     <hr>
-                    <form id="poolImportForm" class="form-grid">
+                    <div class="d-flex flex-column flex-md-row justify-content-between gap-2 align-items-md-center">
                         <div>
-                            <label for="poolConditionId" class="form-label">Pool für Bedingung</label>
-                            <select id="poolConditionId" class="form-select"></select>
+                            <h3 class="form-section-title mt-0 pt-0 border-0">Staff-Werte</h3>
+                            <div id="staffValueSummary" class="text-secondary small"></div>
                         </div>
-                        <div class="span-2">
-                            <label for="poolTable" class="form-label">Tabelle einfügen</label>
-                            <textarea id="poolTable" class="form-control font-monospace" rows="5" placeholder="pid&#10;P001&#10;P002"></textarea>
-                        </div>
-                        <div class="align-self-end">
-                            <button class="btn btn-primary w-100" type="submit">Pool importieren</button>
-                        </div>
-                    </form>
-                    <div id="poolCounts" class="small text-secondary mt-2"></div>
-                    <div id="poolRowList" class="compact-list mt-3"></div>
+                        <button id="manageStaffValuesButton" type="button" class="btn btn-outline-primary btn-sm">Werte bearbeiten</button>
+                    </div>
                 </section>
+            </div>
+        </section>
+
+        <section id="poolPanel" class="card shadow-sm d-none">
+            <div class="card-header bg-white d-flex flex-column flex-md-row justify-content-between gap-2 align-items-md-center">
+                <div>
+                    <h2 class="h5 mb-1">Zugangsdaten-Pool</h2>
+                    <div id="poolSummary" class="text-secondary small"></div>
+                </div>
+                <div class="button-row">
+                    <button id="managePoolButton" type="button" class="btn btn-outline-primary btn-sm">Pool bereitstellen</button>
+                    <button id="clearPoolButton" type="button" class="btn btn-outline-danger btn-sm">Pool löschen</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="poolRowList" class="compact-list"></div>
             </div>
         </section>
 
@@ -246,7 +254,10 @@
                     <h2 class="h5 mb-1">Teilnehmende Studierende</h2>
                     <div id="participantSummary" class="text-secondary small"></div>
                 </div>
-                <button id="manageParticipantsButton" type="button" class="btn btn-outline-primary btn-sm">Auswahl bearbeiten</button>
+                <div class="button-row">
+                    <button id="manageParticipantsButton" type="button" class="btn btn-outline-primary btn-sm">Auswahl bearbeiten</button>
+                    <button id="clearParticipantsButton" type="button" class="btn btn-outline-danger btn-sm">Auswahl löschen</button>
+                </div>
             </div>
             <div id="participantList" class="list-group list-group-flush"></div>
         </section>
@@ -257,7 +268,10 @@
                     <h2 class="h5 mb-1">Bedingungszuweisung</h2>
                     <div id="conditionAssignmentSummary" class="text-secondary small"></div>
                 </div>
-                <button id="manageConditionAssignmentsButton" type="button" class="btn btn-outline-primary btn-sm">Zuweisungen bearbeiten</button>
+                <div class="button-row">
+                    <button id="manageConditionAssignmentsButton" type="button" class="btn btn-outline-primary btn-sm">Zuweisung bearbeiten</button>
+                    <button id="clearConditionAssignmentsButton" type="button" class="btn btn-outline-danger btn-sm">Zuweisung aufheben</button>
+                </div>
             </div>
             <div id="conditionAssignmentList" class="list-group list-group-flush"></div>
         </section>
@@ -309,21 +323,14 @@
             <div class="card-header bg-white d-flex flex-column flex-md-row justify-content-between gap-2 align-items-md-center">
                 <div>
                     <h2 id="gradingTitle" class="h5 mb-1">Anrechnung</h2>
-                    <div class="text-secondary small">Teilnahmen bestätigen, Uhrzeiten eintragen und Zuweisungen zurücksetzen.</div>
+                    <div class="text-secondary small">Teilnahmen bestätigen, konfigurierte Zugangsdaten und Zeitdaten eintragen und Zuweisungen zurücksetzen.</div>
                 </div>
                 <button id="backFromGradingButton" type="button" class="btn btn-outline-secondary btn-sm">Zur Übersicht</button>
             </div>
             <div class="table-responsive">
                 <table class="table table-sm align-middle mb-0">
                     <thead>
-                    <tr>
-                        <th>E-Mail</th>
-                        <th>Bedingung</th>
-                        <th>Zeitslot</th>
-                        <th>Uhrzeit</th>
-                        <th>Angerechnet</th>
-                        <th class="text-end">Aktionen</th>
-                    </tr>
+                    <tr id="participationHeaderRow"></tr>
                     </thead>
                     <tbody id="participationRows"></tbody>
                 </table>
@@ -342,11 +349,12 @@
             <div class="modal-body">
                 <div class="modal-tool-grid mb-3">
                     <section class="modal-tool-section">
-                        <h3 class="h6">Alle zugelassenen</h3>
+                        <h3 class="h6">Alle zulassen</h3>
+                        <div class="form-label modal-tool-label-spacer" aria-hidden="true">Auswahl</div>
                         <button id="participantSelectAllButton" type="button" class="btn btn-outline-primary w-100">Alle auswählen</button>
                     </section>
                     <section class="modal-tool-section">
-                        <h3 class="h6">Zufällige Auswahl</h3>
+                        <h3 class="h6">Zufällig auswählen</h3>
                         <div class="row g-2">
                             <div class="col-md-4">
                                 <label for="participantRandomCount" class="form-label">Anzahl</label>
@@ -378,6 +386,60 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Abbrechen</button>
                 <button id="participantSaveButton" type="button" class="btn btn-primary">Auswahl speichern</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="staffValueModal" class="modal fade" tabindex="-1" aria-labelledby="staffValueModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="staffValueModalTitle" class="modal-title h5">Staff-Werte vorbereiten</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+            </div>
+            <div class="modal-body">
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                        <tr id="staffValueHeaderRow"></tr>
+                        </thead>
+                        <tbody id="staffValueRows"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Abbrechen</button>
+                <button id="staffValueSaveButton" type="button" class="btn btn-primary">Werte speichern</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="poolModal" class="modal fade" tabindex="-1" aria-labelledby="poolModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="poolModalTitle" class="modal-title h5">Zugangsdaten-Pool bereitstellen</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="poolModalConditionId" class="form-label">Pool für Bedingung</label>
+                    <select id="poolModalConditionId" class="form-select"></select>
+                </div>
+                <div class="mb-3">
+                    <div class="form-label">CSV-Beispiel</div>
+                    <pre id="poolSample" class="sample-block mb-0"></pre>
+                </div>
+                <div>
+                    <label for="poolTable" class="form-label">CSV einfügen</label>
+                    <textarea id="poolTable" class="form-control font-monospace" rows="9"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Abbrechen</button>
+                <button id="poolSaveButton" type="button" class="btn btn-primary">Pool speichern</button>
             </div>
         </div>
     </div>

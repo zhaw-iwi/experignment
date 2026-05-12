@@ -82,6 +82,16 @@ try {
         }
     }
 
+    if ($eligibility !== null) {
+        copy_eligibility_field_values_to_participation(
+            $pdo,
+            $participationId,
+            (int) $eligibility['id'],
+            $experimentId,
+            $conditionId
+        );
+    }
+
     $pdo->commit();
 } catch (Throwable $throwable) {
     if ($pdo->inTransaction()) {

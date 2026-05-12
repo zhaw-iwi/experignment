@@ -62,20 +62,33 @@ const dom = {
     sharedValueGroup: document.getElementById("sharedValueGroup"),
     sharedValue: document.getElementById("sharedValue"),
     fieldIsVisible: document.getElementById("fieldIsVisible"),
-    poolImportSection: document.getElementById("poolImportSection"),
-    poolImportForm: document.getElementById("poolImportForm"),
-    poolConditionId: document.getElementById("poolConditionId"),
-    poolTable: document.getElementById("poolTable"),
-    poolCounts: document.getElementById("poolCounts"),
+    poolPanel: document.getElementById("poolPanel"),
+    poolSummary: document.getElementById("poolSummary"),
+    managePoolButton: document.getElementById("managePoolButton"),
+    clearPoolButton: document.getElementById("clearPoolButton"),
     poolRowList: document.getElementById("poolRowList"),
+    poolModal: document.getElementById("poolModal"),
+    poolModalConditionId: document.getElementById("poolModalConditionId"),
+    poolSample: document.getElementById("poolSample"),
+    poolTable: document.getElementById("poolTable"),
+    poolSaveButton: document.getElementById("poolSaveButton"),
+    staffValueSection: document.getElementById("staffValueSection"),
+    staffValueSummary: document.getElementById("staffValueSummary"),
+    manageStaffValuesButton: document.getElementById("manageStaffValuesButton"),
+    staffValueModal: document.getElementById("staffValueModal"),
+    staffValueHeaderRow: document.getElementById("staffValueHeaderRow"),
+    staffValueRows: document.getElementById("staffValueRows"),
+    staffValueSaveButton: document.getElementById("staffValueSaveButton"),
     participantPanel: document.getElementById("participantPanel"),
     participantSummary: document.getElementById("participantSummary"),
     participantList: document.getElementById("participantList"),
     manageParticipantsButton: document.getElementById("manageParticipantsButton"),
+    clearParticipantsButton: document.getElementById("clearParticipantsButton"),
     conditionAssignmentPanel: document.getElementById("conditionAssignmentPanel"),
     conditionAssignmentSummary: document.getElementById("conditionAssignmentSummary"),
     conditionAssignmentList: document.getElementById("conditionAssignmentList"),
     manageConditionAssignmentsButton: document.getElementById("manageConditionAssignmentsButton"),
+    clearConditionAssignmentsButton: document.getElementById("clearConditionAssignmentsButton"),
     participantModal: document.getElementById("participantModal"),
     participantModalSelectedList: document.getElementById("participantModalSelectedList"),
     participantSelectedCount: document.getElementById("participantSelectedCount"),
@@ -106,6 +119,7 @@ const dom = {
     slotChoiceList: document.getElementById("slotChoiceList"),
     gradingTitle: document.getElementById("gradingTitle"),
     backFromGradingButton: document.getElementById("backFromGradingButton"),
+    participationHeaderRow: document.getElementById("participationHeaderRow"),
     participationRows: document.getElementById("participationRows"),
 };
 
@@ -226,24 +240,31 @@ function wireEvents() {
         await loadDashboard("Zugangsfeld gespeichert.");
     });
 
-    dom.poolImportForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const experiment = selectedExperiment();
-        if (!experiment) {
-            showMessage("Bitte speichern Sie zuerst das Experiment.", "warning");
-            return;
-        }
-        const payload = await postAction("import_pool_rows", {
-            experimentId: experiment.id,
-            conditionId: valueOrNull(dom.poolConditionId.value),
-            table: dom.poolTable.value,
-        });
-        dom.poolTable.value = "";
-        await loadDashboard(`${payload.imported} Pool-Zeilen importiert.`);
+    dom.managePoolButton.addEventListener("click", () => {
+        openPoolModal();
+    });
+    dom.clearPoolButton.addEventListener("click", async () => {
+        await clearAccessPool();
+    });
+    dom.poolModalConditionId.addEventListener("change", () => {
+        renderPoolSample();
+    });
+    dom.poolSaveButton.addEventListener("click", async () => {
+        await savePoolRows();
+    });
+
+    dom.manageStaffValuesButton.addEventListener("click", () => {
+        openStaffValueModal();
+    });
+    dom.staffValueSaveButton.addEventListener("click", async () => {
+        await saveStaffEligibilityFieldValues();
     });
 
     dom.manageParticipantsButton.addEventListener("click", () => {
         openParticipantModal();
+    });
+    dom.clearParticipantsButton.addEventListener("click", async () => {
+        await clearParticipantSelection();
     });
 
     dom.participantSelectAllButton.addEventListener("click", () => {
@@ -263,6 +284,9 @@ function wireEvents() {
 
     dom.manageConditionAssignmentsButton.addEventListener("click", () => {
         openConditionAssignmentModal();
+    });
+    dom.clearConditionAssignmentsButton.addEventListener("click", async () => {
+        await clearConditionAssignments();
     });
     dom.conditionRandomButton.addEventListener("click", () => {
         applyRandomConditionAssignments();
@@ -338,8 +362,7 @@ function renderAll() {
     updateExperimentDependentPanels();
     renderConditionSection();
     renderFieldSection();
-    renderPoolCounts();
-    renderPoolRows();
+    renderPoolSection();
     renderParticipantSection();
     renderConditionAssignmentSection();
     renderSlotSection();
@@ -671,6 +694,7 @@ function updateExperimentDependentPanels() {
     for (const panel of [dom.conditionPanel, dom.accessPanel, dom.participantPanel]) {
         panel.classList.toggle("d-none", !hasSavedExperiment || state.view !== "experiment");
     }
+    dom.poolPanel.classList.toggle("d-none", !hasSavedExperiment || state.view !== "experiment" || !hasSavedPoolFields(experiment));
     const showConditionAssignments = hasSavedExperiment
         && state.view === "experiment"
         && experiment.conditionMode === "assigned"
@@ -694,16 +718,54 @@ function updateSharedValueVisibility() {
     }
 }
 
-function updatePoolImportVisibility(experiment) {
-    const isVisible = state.view === "experiment" && hasSavedPoolFields(experiment);
-    dom.poolImportSection.classList.toggle("d-none", !isVisible);
-    for (const control of dom.poolImportSection.querySelectorAll("input, select, textarea, button")) {
-        control.disabled = !isVisible;
-    }
-}
-
 function hasSavedPoolFields(experiment) {
     return (experiment?.accessFields || []).some((field) => field.valueSource === "pool");
+}
+
+function updateStaffValueSection(experiment) {
+    const fields = staffEntryFieldsForExperiment(experiment);
+    const emails = effectiveParticipantEmails(experiment);
+    const isVisible = state.view === "experiment" && fields.length > 0;
+    dom.staffValueSection.classList.toggle("d-none", !isVisible);
+    dom.manageStaffValuesButton.disabled = !isVisible || emails.length === 0 || (experiment?.counts?.participations || 0) > 0;
+    if (!isVisible) {
+        dom.staffValueSummary.textContent = "";
+        return;
+    }
+
+    const completeness = staffValueCompleteness(experiment, fields, emails);
+    const locked = (experiment?.counts?.participations || 0) > 0
+        ? " Werte sind gesperrt, weil bereits Zugang geöffnet wurde."
+        : "";
+    dom.staffValueSummary.textContent = `${completeness.filled}/${completeness.total} Werte vorbereitet.${locked}`;
+}
+
+function staffEntryFieldsForExperiment(experiment) {
+    return (experiment?.accessFields || []).filter((field) => field.valueSource === "staff_entry" && field.valueType !== "appointment");
+}
+
+function staffValueCompleteness(experiment, fields, emails) {
+    const eligibilities = eligibilityByEmail(experiment);
+    let total = 0;
+    let filled = 0;
+    for (const email of emails) {
+        const eligibility = eligibilities.get(email);
+        const values = fieldValueMap(eligibility);
+        for (const field of fields) {
+            if (!staffFieldAppliesToEligibility(field, eligibility)) {
+                continue;
+            }
+            total++;
+            if ((values.get(field.id) || "") !== "") {
+                filled++;
+            }
+        }
+    }
+    return { filled, total };
+}
+
+function staffFieldAppliesToEligibility(field, eligibility) {
+    return field.conditionId === null || field.conditionId === (eligibility?.conditionId || null);
 }
 
 function renderConditionSection() {
@@ -744,8 +806,7 @@ function renderFieldSection() {
     const experiment = selectedExperiment();
     dom.fieldList.innerHTML = "";
     fillConditionSelect(dom.fieldConditionId, experiment, "Experimentweit");
-    fillConditionSelect(dom.poolConditionId, experiment, "Experimentweit");
-    updatePoolImportVisibility(experiment);
+    updateStaffValueSection(experiment);
 
     if (!experiment) {
         return;
@@ -786,28 +847,30 @@ function renderFieldSection() {
     }
 }
 
-function renderPoolCounts() {
-    const experiment = selectedExperiment();
-    if (!experiment || !hasSavedPoolFields(experiment)) {
-        dom.poolCounts.textContent = "";
-        return;
-    }
-
-    const parts = (experiment.poolCounts || []).map((count) => {
-        const conditionName = conditionNameById(experiment, count.conditionId) || "experimentweit";
-        return `${conditionName}: ${count.available}/${count.total} frei`;
-    });
-    dom.poolCounts.textContent = parts.length > 0 ? parts.join(" · ") : "Kein Zugangsdaten-Pool vorhanden.";
-}
-
-function renderPoolRows() {
+function renderPoolSection() {
     const experiment = selectedExperiment();
     dom.poolRowList.innerHTML = "";
     if (!experiment || !hasSavedPoolFields(experiment)) {
+        dom.poolSummary.textContent = "";
         return;
     }
 
     const rows = experiment.accessPoolRows || [];
+    const total = rows.length;
+    const assigned = rows.filter((poolRow) => poolRow.isAssigned).length;
+    const available = total - assigned;
+    const parts = (experiment.poolCounts || []).map((count) => {
+        const conditionName = conditionNameById(experiment, count.conditionId) || "experimentweit";
+        return `${conditionName}: ${count.available}/${count.total} frei`;
+    });
+    dom.poolSummary.textContent = parts.length > 0
+        ? `${available}/${total} Pool-Zeilen frei. ${parts.join(" · ")}`
+        : "Noch kein Zugangsdaten-Pool bereitgestellt.";
+    dom.clearPoolButton.disabled = total === 0 || assigned > 0;
+    dom.clearPoolButton.title = assigned > 0
+        ? "Zugewiesene Pool-Zeilen können nicht gelöscht werden."
+        : "Gesamten Zugangsdaten-Pool löschen";
+
     for (const poolRow of rows) {
         const conditionName = poolRow.conditionName || "experimentweit";
         const values = (poolRow.values || []).map((value) => `${value.label}: ${value.value}`).join(" · ");
@@ -815,23 +878,189 @@ function renderPoolRows() {
             ? `zugewiesen an ${poolRow.assignedStudentEmail || "unbekannt"}`
             : "frei";
         const item = compactItem(`#${poolRow.id} · ${conditionName}`, `${assigned}${values ? " · " + values : ""}`);
-        const remove = smallButton("Löschen", "outline-danger");
-        remove.disabled = poolRow.isAssigned;
-        remove.title = poolRow.isAssigned ? "Zugewiesene Pool-Zeilen zuerst zurücksetzen." : "Pool-Zeile löschen";
-        remove.addEventListener("click", async () => {
-            if (!window.confirm(`Pool-Zeile #${poolRow.id} löschen?`)) {
-                return;
-            }
-            await postAction("delete_pool_row", { poolRowId: poolRow.id });
-            await loadDashboard("Pool-Zeile gelöscht.");
-        });
-        item.appendChild(actionRow([remove]));
         dom.poolRowList.appendChild(item);
     }
 
     if (rows.length === 0) {
         dom.poolRowList.appendChild(emptyText("Keine Pool-Zeilen vorhanden."));
     }
+}
+
+function openPoolModal() {
+    const experiment = selectedExperiment();
+    if (!experiment) {
+        showMessage("Bitte speichern Sie zuerst das Experiment.", "warning");
+        return;
+    }
+    if (!hasSavedPoolFields(experiment)) {
+        showMessage("Bitte legen Sie zuerst ein Zugangsfeld mit Quelle Aus Pool zuweisen an.", "warning");
+        return;
+    }
+    fillConditionSelect(dom.poolModalConditionId, experiment, "Experimentweit");
+    dom.poolTable.value = "";
+    renderPoolSample();
+    bootstrap.Modal.getOrCreateInstance(dom.poolModal).show();
+}
+
+function renderPoolSample() {
+    const experiment = selectedExperiment();
+    if (!experiment) {
+        dom.poolSample.textContent = "";
+        return;
+    }
+
+    const conditionId = valueOrNull(dom.poolModalConditionId.value);
+    const fields = poolFieldsForCondition(experiment, conditionId);
+    if (fields.length === 0) {
+        dom.poolSample.textContent = "Für diese Auswahl sind keine Pool-Felder definiert.";
+        return;
+    }
+
+    const headers = fields.map((field) => field.key);
+    const rowOne = fields.map((field) => samplePoolValue(field, 1));
+    const rowTwo = fields.map((field) => samplePoolValue(field, 2));
+    dom.poolSample.textContent = [headers, rowOne, rowTwo].map((row) => row.join(",")).join("\n");
+}
+
+function poolFieldsForCondition(experiment, conditionId) {
+    return (experiment.accessFields || []).filter((field) => {
+        if (field.valueSource !== "pool") {
+            return false;
+        }
+        if (conditionId === null) {
+            return field.conditionId === null;
+        }
+        return field.conditionId === null || field.conditionId === conditionId;
+    });
+}
+
+function samplePoolValue(field, index) {
+    const suffix = String(index).padStart(3, "0");
+    if (field.valueType === "url") {
+        return `https://example.test/${field.key}/${suffix}`;
+    }
+    if (field.valueType === "pid") {
+        return `P${suffix}`;
+    }
+    return `${field.key}_${suffix}`;
+}
+
+async function savePoolRows() {
+    const experiment = selectedExperiment();
+    if (!experiment) {
+        return;
+    }
+    const payload = await postAction("import_pool_rows", {
+        experimentId: experiment.id,
+        conditionId: valueOrNull(dom.poolModalConditionId.value),
+        table: dom.poolTable.value,
+    });
+    bootstrap.Modal.getOrCreateInstance(dom.poolModal).hide();
+    dom.poolTable.value = "";
+    await loadDashboard(`${payload.imported} Pool-Zeilen importiert.`);
+}
+
+async function clearAccessPool() {
+    const experiment = selectedExperiment();
+    if (!experiment) {
+        return;
+    }
+    if (!window.confirm("Gesamten Zugangsdaten-Pool für dieses Experiment löschen?")) {
+        return;
+    }
+    const payload = await postAction("clear_access_pool_rows", {
+        experimentId: experiment.id,
+    });
+    await loadDashboard(`${payload.deletedCount} Pool-Zeilen gelöscht.`);
+}
+
+function openStaffValueModal() {
+    const experiment = selectedExperiment();
+    if (!experiment) {
+        showMessage("Bitte speichern Sie zuerst das Experiment.", "warning");
+        return;
+    }
+    if ((experiment.counts?.participations || 0) > 0) {
+        showMessage("Staff-Werte können nicht mehr geändert werden, nachdem Studierende Zugang geöffnet haben.", "warning");
+        return;
+    }
+    if (staffEntryFieldsForExperiment(experiment).length === 0) {
+        showMessage("Bitte legen Sie zuerst ein Zugangsfeld mit Quelle Durch Staff eintragen an.", "warning");
+        return;
+    }
+    if (effectiveParticipantEmails(experiment).length === 0) {
+        showMessage("Bitte wählen Sie zuerst teilnehmende Studierende aus.", "warning");
+        return;
+    }
+
+    renderStaffValueModal();
+    bootstrap.Modal.getOrCreateInstance(dom.staffValueModal).show();
+}
+
+function renderStaffValueModal() {
+    const experiment = selectedExperiment();
+    dom.staffValueHeaderRow.innerHTML = "";
+    dom.staffValueRows.innerHTML = "";
+    if (!experiment) {
+        return;
+    }
+
+    const fields = staffEntryFieldsForExperiment(experiment);
+    appendHeaderCell(dom.staffValueHeaderRow, "E-Mail");
+    for (const field of fields) {
+        appendHeaderCell(dom.staffValueHeaderRow, field.label);
+    }
+
+    const eligibilities = eligibilityByEmail(experiment);
+    for (const email of effectiveParticipantEmails(experiment)) {
+        const eligibility = eligibilities.get(email);
+        const values = fieldValueMap(eligibility);
+        const row = document.createElement("tr");
+        appendTableCell(row, email, "");
+        for (const field of fields) {
+            const input = document.createElement("input");
+            input.className = "form-control form-control-sm";
+            input.type = field.valueType === "url" ? "url" : "text";
+            input.value = values.get(field.id) || "";
+            input.dataset.email = email;
+            input.dataset.fieldId = String(field.id);
+            if (!staffFieldAppliesToEligibility(field, eligibility)) {
+                input.disabled = true;
+                input.placeholder = "Nicht für Bedingung";
+            }
+            appendTableCell(row, input, "");
+        }
+        dom.staffValueRows.appendChild(row);
+    }
+}
+
+async function saveStaffEligibilityFieldValues() {
+    const experiment = selectedExperiment();
+    if (!experiment) {
+        return;
+    }
+
+    const rows = new Map();
+    for (const input of dom.staffValueRows.querySelectorAll("input[data-email][data-field-id]")) {
+        if (input.disabled) {
+            continue;
+        }
+        const email = input.dataset.email;
+        if (!rows.has(email)) {
+            rows.set(email, []);
+        }
+        rows.get(email).push({
+            fieldId: Number(input.dataset.fieldId),
+            value: input.value,
+        });
+    }
+
+    const payload = await postAction("save_staff_eligibility_field_values", {
+        experimentId: experiment.id,
+        rows: Array.from(rows.entries()).map(([email, values]) => ({ email, values })),
+    });
+    bootstrap.Modal.getOrCreateInstance(dom.staffValueModal).hide();
+    await loadDashboard(`${payload.savedCount} Staff-Werte gespeichert.`);
 }
 
 function renderParticipantSection() {
@@ -843,6 +1072,7 @@ function renderParticipantSection() {
     }
 
     const emails = effectiveParticipantEmails(experiment);
+    dom.clearParticipantsButton.disabled = emails.length === 0;
     dom.participantSummary.textContent = experiment.eligibilityMode === "all_allowed"
         ? `Alle ${allowedEmails().length} global zugelassenen Studierenden können teilnehmen.`
         : `${emails.length} Studierende sind für dieses Experiment ausgewählt.`;
@@ -879,6 +1109,7 @@ function renderConditionAssignmentSection() {
     const emails = effectiveParticipantEmails(experiment);
     const eligibilities = eligibilityByEmail(experiment);
     const assignedCount = emails.filter((email) => eligibilities.get(email)?.conditionId).length;
+    dom.clearConditionAssignmentsButton.disabled = assignedCount === 0;
     dom.conditionAssignmentSummary.textContent = `${assignedCount}/${emails.length} Studierende haben eine Bedingung.`;
 
     if (emails.length === 0) {
@@ -988,6 +1219,20 @@ async function saveParticipantSelection() {
     });
     bootstrap.Modal.getOrCreateInstance(dom.participantModal).hide();
     await loadDashboard(`${payload.selectedCount} Studierende gespeichert.`);
+}
+
+async function clearParticipantSelection() {
+    const experiment = selectedExperiment();
+    if (!experiment) {
+        return;
+    }
+    if (!window.confirm("Auswahl der teilnehmenden Studierenden für dieses Experiment löschen?")) {
+        return;
+    }
+    await postAction("clear_eligibility_selection", {
+        experimentId: experiment.id,
+    });
+    await loadDashboard("Auswahl der teilnehmenden Studierenden gelöscht.");
 }
 
 function openConditionAssignmentModal() {
@@ -1110,6 +1355,20 @@ async function saveConditionAssignments() {
     await loadDashboard(`${payload.assignedCount} Bedingungszuweisungen gespeichert.`);
 }
 
+async function clearConditionAssignments() {
+    const experiment = selectedExperiment();
+    if (!experiment) {
+        return;
+    }
+    if (!window.confirm("Alle Bedingungszuweisungen für dieses Experiment aufheben?")) {
+        return;
+    }
+    await postAction("clear_condition_assignments", {
+        experimentId: experiment.id,
+    });
+    await loadDashboard("Bedingungszuweisung aufgehoben.");
+}
+
 function renderSlotSection() {
     const experiment = selectedExperiment();
     dom.slotList.innerHTML = "";
@@ -1185,10 +1444,21 @@ function renderSlotChoices() {
 function renderGrading() {
     const experiment = selectedExperiment();
     dom.participationRows.innerHTML = "";
+    dom.participationHeaderRow.innerHTML = "";
     dom.gradingTitle.textContent = experiment ? `${experiment.name} Anrechnung` : "Anrechnung";
 
     if (state.view !== "grading" || !experiment) {
         return;
+    }
+
+    const columns = gradingColumns(experiment);
+    for (const column of columns) {
+        const header = document.createElement("th");
+        header.textContent = column.title;
+        if (column.headerClass) {
+            header.className = column.headerClass;
+        }
+        dom.participationHeaderRow.appendChild(header);
     }
 
     const rows = (state.dashboard.participations || []).filter((participation) => {
@@ -1197,67 +1467,190 @@ function renderGrading() {
 
     for (const participation of rows) {
         const row = document.createElement("tr");
-        row.innerHTML = `
-            <td>${escapeHtml(participation.email)}</td>
-            <td>${escapeHtml(participation.conditionName || "-")}</td>
-            <td>${escapeHtml(participation.slotLabel || "-")}</td>
-            <td></td>
-            <td>${participation.confirmed ? "Ja" : "Nein"}</td>
-            <td class="text-end"></td>
-        `;
-
-        const appointmentCell = row.children[3];
-        const appointmentGroup = document.createElement("div");
-        appointmentGroup.className = "input-group input-group-sm";
-        const input = document.createElement("input");
-        input.className = "form-control";
-        input.value = participation.appointmentText || "";
-        input.placeholder = "z.B. 09:30";
-        const save = document.createElement("button");
-        save.className = "btn btn-outline-primary";
-        save.type = "button";
-        save.textContent = "OK";
-        save.addEventListener("click", async () => {
-            await postAction("save_appointment", {
-                participationId: participation.id,
-                appointmentText: input.value,
-            });
-            await loadDashboard("Uhrzeit gespeichert.");
-        });
-        appointmentGroup.append(input, save);
-        appointmentCell.appendChild(appointmentGroup);
-
-        const actions = row.children[5];
-        const confirm = smallButton(participation.confirmed ? "Entfernen" : "Anrechnen", participation.confirmed ? "outline-secondary" : "success");
-        confirm.addEventListener("click", async () => {
-            await postAction("toggle_confirmation", { participationId: participation.id });
-            await loadDashboard("Anrechnung aktualisiert.");
-        });
-        const reset = smallButton("Reset", "outline-danger");
-        reset.addEventListener("click", async () => {
-            if (!window.confirm("Diese Zuweisung zurücksetzen und Zugangsdaten freigeben?")) {
-                return;
-            }
-            await postAction("reset_participation", {
-                participationId: participation.id,
-                releaseAccess: true,
-            });
-            await loadDashboard("Zuweisung zurückgesetzt.");
-        });
-        actions.append(confirm, document.createTextNode(" "), reset);
-
+        for (const column of columns) {
+            appendTableCell(row, column.render(participation), column.cellClass || "");
+        }
         dom.participationRows.appendChild(row);
     }
 
     if (rows.length === 0) {
         const row = document.createElement("tr");
         const cell = document.createElement("td");
-        cell.colSpan = 6;
+        cell.colSpan = columns.length;
         cell.className = "text-secondary py-3";
         cell.textContent = "Keine Zuweisungen für dieses Experiment vorhanden.";
         row.appendChild(cell);
         dom.participationRows.appendChild(row);
     }
+}
+
+function gradingColumns(experiment) {
+    const columns = [
+        {
+            title: "E-Mail",
+            render: (participation) => participation.email,
+        },
+    ];
+
+    if (experiment.conditionMode !== "none" && (experiment.conditions || []).length > 0) {
+        columns.push({
+            title: "Bedingung",
+            render: (participation) => participation.conditionName || "-",
+        });
+    }
+
+    columns.push({
+        title: "Zugang geöffnet",
+        cellClass: "text-nowrap",
+        render: (participation) => formatDateTime(participation.assignedAt),
+    });
+
+    if (experiment.requiresTimeSlot) {
+        columns.push({
+            title: "Zeitslot",
+            render: (participation) => participation.slotLabel || "-",
+        });
+    }
+
+    if (hasStaffEntryFields(experiment)) {
+        columns.push({
+            title: "Zugangsdaten",
+            render: (participation) => staffFieldDisplay(experiment, participation),
+        });
+    }
+
+    if (hasAppointmentFlow(experiment)) {
+        columns.push({
+            title: "Uhrzeit",
+            render: (participation) => appointmentEditor(participation),
+        });
+    }
+
+    columns.push(
+        {
+            title: "Angerechnet",
+            render: (participation) => participation.confirmed ? "Ja" : "Nein",
+        },
+        {
+            title: "Aktionen",
+            headerClass: "text-end",
+            cellClass: "text-end",
+            render: (participation) => gradingActions(participation),
+        }
+    );
+
+    return columns;
+}
+
+function hasStaffEntryFields(experiment) {
+    return (experiment.accessFields || []).some((field) => field.valueSource === "staff_entry" && field.valueType !== "appointment");
+}
+
+function hasAppointmentFlow(experiment) {
+    return experiment.requiresTimeSlot || (experiment.accessFields || []).some((field) => field.valueType === "appointment");
+}
+
+function appendTableCell(row, content, className) {
+    const cell = document.createElement("td");
+    if (className) {
+        cell.className = className;
+    }
+    if (content instanceof Node) {
+        cell.appendChild(content);
+    } else {
+        cell.textContent = content;
+    }
+    row.appendChild(cell);
+}
+
+function appendHeaderCell(row, content) {
+    const cell = document.createElement("th");
+    cell.textContent = content;
+    row.appendChild(cell);
+}
+
+function appointmentEditor(participation) {
+    const appointmentGroup = document.createElement("div");
+    appointmentGroup.className = "input-group input-group-sm grading-appointment-editor";
+    const input = document.createElement("input");
+    input.className = "form-control";
+    input.value = participation.appointmentText || "";
+    input.placeholder = "z.B. 09:30";
+    const save = document.createElement("button");
+    save.className = "btn btn-outline-primary";
+    save.type = "button";
+    save.textContent = "OK";
+    save.addEventListener("click", async () => {
+        await postAction("save_appointment", {
+            participationId: participation.id,
+            appointmentText: input.value,
+        });
+        await loadDashboard("Uhrzeit gespeichert.");
+    });
+    appointmentGroup.append(input, save);
+    return appointmentGroup;
+}
+
+function gradingActions(participation) {
+    const actions = document.createElement("div");
+    actions.className = "button-row justify-content-end";
+    const confirm = smallButton(participation.confirmed ? "Entfernen" : "Anrechnen", participation.confirmed ? "outline-secondary" : "success");
+    confirm.addEventListener("click", async () => {
+        await postAction("toggle_confirmation", { participationId: participation.id });
+        await loadDashboard("Anrechnung aktualisiert.");
+    });
+    const reset = smallButton("Reset", "outline-danger");
+    reset.addEventListener("click", async () => {
+        if (!window.confirm("Diese Zuweisung zurücksetzen und Zugangsdaten freigeben?")) {
+            return;
+        }
+        await postAction("reset_participation", {
+            participationId: participation.id,
+            releaseAccess: true,
+        });
+        await loadDashboard("Zuweisung zurückgesetzt.");
+    });
+    actions.append(confirm, reset);
+    return actions;
+}
+
+function staffFieldDisplay(experiment, participation) {
+    const fields = staffEntryFieldsForParticipation(experiment, participation);
+    if (fields.length === 0) {
+        return emptyText("Keine Staff-Felder.");
+    }
+
+    const values = fieldValueMap(participation);
+    const wrapper = document.createElement("div");
+    wrapper.className = "staff-field-editor";
+
+    for (const field of fields) {
+        const item = document.createElement("div");
+        item.className = "small";
+        const label = document.createElement("strong");
+        label.textContent = `${field.label}: `;
+        const value = document.createElement("span");
+        value.textContent = values.get(field.id) || "-";
+        item.append(label, value);
+        wrapper.appendChild(item);
+    }
+
+    return wrapper;
+}
+
+function staffEntryFieldsForParticipation(experiment, participation) {
+    return (experiment.accessFields || []).filter((field) => {
+        const appliesToCondition = field.conditionId === null || field.conditionId === participation.conditionId;
+        return appliesToCondition && field.valueSource === "staff_entry" && field.valueType !== "appointment";
+    });
+}
+
+function fieldValueMap(record) {
+    const values = new Map();
+    for (const fieldValue of record?.fieldValues || []) {
+        values.set(fieldValue.fieldId, fieldValue.value || "");
+    }
+    return values;
 }
 
 function selectedExperiment() {

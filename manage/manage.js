@@ -41,6 +41,7 @@ const dom = {
     conditionList: document.getElementById("conditionList"),
     conditionFormTitle: document.getElementById("conditionFormTitle"),
     conditionForm: document.getElementById("conditionForm"),
+    cancelConditionButton: document.getElementById("cancelConditionButton"),
     conditionId: document.getElementById("conditionId"),
     conditionName: document.getElementById("conditionName"),
     conditionSortOrder: document.getElementById("conditionSortOrder"),
@@ -52,6 +53,7 @@ const dom = {
     fieldList: document.getElementById("fieldList"),
     fieldFormTitle: document.getElementById("fieldFormTitle"),
     fieldForm: document.getElementById("fieldForm"),
+    cancelFieldButton: document.getElementById("cancelFieldButton"),
     fieldId: document.getElementById("fieldId"),
     fieldConditionId: document.getElementById("fieldConditionId"),
     fieldLabel: document.getElementById("fieldLabel"),
@@ -194,6 +196,10 @@ function wireEvents() {
         await loadDashboard("Bedingung gespeichert.");
     });
 
+    dom.cancelConditionButton.addEventListener("click", () => {
+        clearConditionForm();
+    });
+
     dom.allowForm.addEventListener("submit", async (event) => {
         event.preventDefault();
         const payload = await postAction("add_allowed_student", {
@@ -238,6 +244,10 @@ function wireEvents() {
         });
         clearFieldForm();
         await loadDashboard("Zugangsfeld gespeichert.");
+    });
+
+    dom.cancelFieldButton.addEventListener("click", () => {
+        clearFieldForm();
     });
 
     dom.managePoolButton.addEventListener("click", () => {

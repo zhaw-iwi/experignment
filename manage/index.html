@@ -145,18 +145,19 @@
             <div class="card-body">
                 <div id="conditionList" class="compact-list mb-3"></div>
                 <h3 id="conditionFormTitle" class="form-section-title">Neue Bedingung</h3>
-                <form id="conditionForm" class="row g-2 align-items-end">
+                <form id="conditionForm" class="row g-2">
                     <input id="conditionId" type="hidden">
-                    <div class="col-md-7">
+                    <div class="col-md-8">
                         <label for="conditionName" class="form-label">Name</label>
                         <input id="conditionName" class="form-control">
                     </div>
-                    <div class="col-md-2">
+                    <div class="col-md-4">
                         <label for="conditionSortOrder" class="form-label">Reihenfolge</label>
                         <input id="conditionSortOrder" class="form-control" type="number" step="1" value="0">
                     </div>
-                    <div class="col-md-3">
-                        <button class="btn btn-primary w-100" type="submit">Speichern</button>
+                    <div class="col-12 form-action-row">
+                        <button class="btn btn-primary" type="submit">Speichern</button>
+                        <button id="cancelConditionButton" class="btn btn-outline-secondary" type="button">Abbrechen</button>
                     </div>
                 </form>
             </div>
@@ -214,8 +215,9 @@
                             <label for="fieldIsVisible" class="form-check-label">Sichtbar</label>
                         </div>
                     </div>
-                    <div class="span-2">
-                        <button class="btn btn-primary w-100" type="submit">Feld speichern</button>
+                    <div class="span-2 form-action-row">
+                        <button class="btn btn-primary" type="submit">Feld speichern</button>
+                        <button id="cancelFieldButton" class="btn btn-outline-secondary" type="button">Abbrechen</button>
                     </div>
                 </form>
 

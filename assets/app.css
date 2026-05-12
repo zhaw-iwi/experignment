@@ -27,7 +27,14 @@ body {
     font-weight: 700;
 }
 
+.student-content {
+    width: 100%;
+    max-width: 1080px;
+    margin-inline: auto;
+}
+
 .panel {
+    width: 100%;
     max-width: 1080px;
     padding: 1.25rem;
     border: 1px solid rgba(23, 32, 51, 0.1);

@@ -13,6 +13,8 @@ Experiment Assignment App is a PHP/MySQL application for managing student experi
 - [x] 2026-05-11: Management operations completeness pass
 - [x] 2026-05-11: Production readiness hardening pass
 - [x] 2026-05-12: Management UI hierarchy redesign
+- [x] 2026-05-12: Compact grading access links
+- [x] 2026-05-12: Experiment overview click-to-edit
 - [ ] Migration from historical live database dump
 - [ ] Staff authentication
 
@@ -376,3 +378,81 @@ Observed on 2026-05-12:
 
 - Test the redesigned `/manage` flow on the deployment.
 - Add staff authentication before broader deployment.
+
+## 2026-05-12: Compact Grading Access Links
+
+### Goal
+
+Reduce row height and horizontal width in the management grading table when access fields contain long URLs.
+
+### What Changed
+
+- Extended management dashboard participation rows with generic `accessItems` derived from the existing student access payload helper.
+- Updated the experiment-specific grading table so the `Zugangsdaten` column covers visible access fields, not only staff-entry values.
+- Rendered URL access fields as compact buttons labeled with the field name and opening in a new tab.
+- Rendered non-link access values as compact truncated chips.
+- Added smoke-test assertions for management dashboard access items.
+- Updated README and context notes for the grading-table behavior.
+
+### How To Run
+
+Open `manage/index.html`, choose an experiment, and open Step 3 `Anrechnung`. The `Zugangsdaten` column appears when the experiment has visible non-appointment access fields; link fields show as labeled buttons instead of raw URLs.
+
+### How To Test
+
+- `php -l api/manage/dashboard.php`
+- `node --check manage/manage.js`
+- `php tests/validation_test.php`
+- `php tests/text_quality_test.php`
+- `php tests/api_smoke_test.php`
+
+Observed on 2026-05-12:
+
+- PHP syntax check passed for `api/manage/dashboard.php`.
+- `validation_test.php` passed.
+- `text_quality_test.php` passed.
+- `api_smoke_test.php` skipped because this PHP installation has no PDO drivers.
+- JavaScript syntax checking could not be run because Node.js is not installed in this environment.
+
+### Known Issues And Decisions
+
+- Appointment-type access fields stay in the dedicated appointment column.
+- The grading access column follows student-visible access-field visibility.
+
+### Next Steps
+
+- Browser-check the grading table with representative long survey and chatbot URLs.
+
+## 2026-05-12: Experiment Overview Click-To-Edit
+
+### Goal
+
+Make the management experiment overview faster to use by opening Step 2 `Bearbeiten` directly when staff click an experiment row.
+
+### What Changed
+
+- Made overview experiment list items clickable and keyboard-focusable.
+- Kept the three-dot action menu independent so `Anrechnung` and delete actions do not also open editing.
+- Updated README and context notes for the overview behavior.
+
+### How To Run
+
+Open `manage/index.html`. In the experiment overview, click any experiment list row to open its editing view.
+
+### How To Test
+
+- `node --check manage/manage.js`
+- `php tests/text_quality_test.php`
+
+Observed on 2026-05-12:
+
+- `text_quality_test.php` passed.
+- JavaScript syntax checking could not be run because Node.js is not installed in this environment.
+
+### Known Issues And Decisions
+
+- The action menu remains the path for opening Step 3 `Anrechnung` directly from an overview row.
+
+### Next Steps
+
+- Browser-check row click, keyboard Enter/Space, and action-menu behavior in `/manage`.

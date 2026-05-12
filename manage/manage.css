@@ -286,20 +286,50 @@ body {
     min-width: 960px;
 }
 
-.staff-field-editor {
-    display: grid;
-    min-width: 18rem;
-    gap: 0.35rem;
-}
-
-.staff-field-editor .input-group-text {
-    max-width: 9rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
 .grading-appointment-editor {
     min-width: 11rem;
+}
+
+.grading-access-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    max-width: 18rem;
+}
+
+.grading-access-link {
+    max-width: 8.5rem;
+    padding: 0.15rem 0.45rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.2;
+}
+
+.grading-access-value {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    max-width: 10rem;
+    min-width: 0;
+    padding: 0.15rem 0.45rem;
+    border: 1px solid rgba(23, 32, 51, 0.12);
+    border-radius: 6px;
+    background: #f9fbfe;
+    font-size: 0.8125rem;
+    line-height: 1.2;
+}
+
+.grading-access-value strong {
+    flex: 0 0 auto;
+    color: var(--bs-secondary-color);
+}
+
+.grading-access-value span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .sample-block {

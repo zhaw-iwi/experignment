@@ -305,7 +305,7 @@ foreach ($experimentRows as $experiment) {
 }
 
 $participationRows = $pdo->query(
-    'SELECT p.id, p.student_email, p.assigned_at, p.confirmed_at,
+    'SELECT p.id, p.student_email, p.access_pool_row_id, p.assigned_at, p.confirmed_at,
             e.id AS experiment_id, e.public_name AS experiment_name,
             ec.id AS condition_id, ec.public_name AS condition_name,
             ts.label AS slot_label,
@@ -344,6 +344,7 @@ foreach ($participationRows as $row) {
         'slotLabel' => $row['slot_label'],
         'appointmentText' => $row['appointment_text'],
         'fieldValues' => $fieldValues,
+        'accessItems' => access_payload($pdo, $row),
     ];
 }
 

@@ -403,6 +403,13 @@ try {
     ]);
     assert_equals($response['body']['reused'] ?? null, true, 'second claim should reuse participation');
 
+    $response = make_request($baseUrl, 'GET', '/api/manage/dashboard.php');
+    assert_equals($response['status'], 200, 'dashboard should load after first claim');
+    $aliceParticipation = dashboard_participation($response['body'] ?? [], 'alice@students.zhaw.ch', 1);
+    assert_equals(count($aliceParticipation['accessItems'] ?? []), 2, 'dashboard participation should include access items');
+    assert_equals(access_item_by_key($aliceParticipation, 'survey')['valueType'] ?? null, 'url', 'dashboard should expose URL access field type');
+    assert_equals(access_item_by_key($aliceParticipation, 'survey')['label'] ?? null, 'Umfrage', 'dashboard should expose URL access field label');
+
     $response = make_request($baseUrl, 'POST', '/api/claim.php', [
         'email' => 'bob@students.zhaw.ch',
         'experimentId' => 2,

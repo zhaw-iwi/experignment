@@ -81,9 +81,9 @@ It supports:
 - showing time-slot setup only for experiments marked as requiring time slots
 - viewing slot choices by slot
 - deleting unused time slots
-- opening experiment-specific editing from the overview
+- opening experiment-specific editing by clicking an experiment in the overview
 - opening experiment-specific grading from the overview
-- showing the access reveal time and prepared staff-entry values in grading while limiting columns to configured experiment features
+- showing the access reveal time and compact access values in grading, with link fields rendered as labeled buttons
 - setting appointment text
 - resetting participations
 - toggling `Angerechnet`

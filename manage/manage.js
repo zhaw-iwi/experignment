@@ -570,7 +570,20 @@ function renderExperimentList() {
 
     for (const experiment of experiments) {
         const item = document.createElement("div");
-        item.className = "list-group-item";
+        item.className = "list-group-item list-group-item-action";
+        item.tabIndex = 0;
+        item.setAttribute("role", "button");
+        item.addEventListener("click", () => openExperiment(experiment.id));
+        item.addEventListener("keydown", (event) => {
+            if (event.target !== item) {
+                return;
+            }
+            if (event.key !== "Enter" && event.key !== " ") {
+                return;
+            }
+            event.preventDefault();
+            openExperiment(experiment.id);
+        });
 
         const row = document.createElement("div");
         row.className = "d-flex justify-content-between gap-3 align-items-start";
@@ -601,6 +614,7 @@ function renderExperimentList() {
 function experimentActionDropdown(experiment) {
     const wrapper = document.createElement("div");
     wrapper.className = "dropdown flex-shrink-0";
+    wrapper.addEventListener("click", (event) => event.stopPropagation());
 
     const toggle = document.createElement("button");
     toggle.type = "button";
@@ -1554,10 +1568,10 @@ function gradingColumns(experiment) {
         });
     }
 
-    if (hasStaffEntryFields(experiment)) {
+    if (hasGradingAccessFields(experiment)) {
         columns.push({
             title: "Zugangsdaten",
-            render: (participation) => staffFieldDisplay(experiment, participation),
+            render: (participation) => gradingAccessDisplay(participation),
         });
     }
 
@@ -1584,8 +1598,8 @@ function gradingColumns(experiment) {
     return columns;
 }
 
-function hasStaffEntryFields(experiment) {
-    return (experiment.accessFields || []).some((field) => field.valueSource === "staff_entry" && field.valueType !== "appointment");
+function hasGradingAccessFields(experiment) {
+    return (experiment.accessFields || []).some((field) => field.isVisible && field.valueType !== "appointment");
 }
 
 function hasAppointmentFlow(experiment) {
@@ -1656,35 +1670,43 @@ function gradingActions(participation) {
     return actions;
 }
 
-function staffFieldDisplay(experiment, participation) {
-    const fields = staffEntryFieldsForParticipation(experiment, participation);
-    if (fields.length === 0) {
-        return emptyText("Keine Staff-Felder.");
+function gradingAccessDisplay(participation) {
+    const items = (participation.accessItems || []).filter((item) => {
+        return item.valueType !== "appointment" && item.value !== null && item.value !== undefined && String(item.value) !== "";
+    });
+    const wrapper = document.createElement("div");
+    wrapper.className = "grading-access-list";
+
+    if (items.length === 0) {
+        wrapper.appendChild(emptyText("Keine Zugangsdaten."));
+        return wrapper;
     }
 
-    const values = fieldValueMap(participation);
-    const wrapper = document.createElement("div");
-    wrapper.className = "staff-field-editor";
+    for (const item of items) {
+        if (item.valueType === "url") {
+            const link = document.createElement("a");
+            link.className = "btn btn-outline-primary btn-sm grading-access-link";
+            link.href = item.value;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            link.title = `${item.label || "Link"} öffnen`;
+            link.textContent = item.label || "Link";
+            wrapper.appendChild(link);
+            continue;
+        }
 
-    for (const field of fields) {
-        const item = document.createElement("div");
-        item.className = "small";
-        const label = document.createElement("strong");
-        label.textContent = `${field.label}: `;
         const value = document.createElement("span");
-        value.textContent = values.get(field.id) || "-";
-        item.append(label, value);
-        wrapper.appendChild(item);
+        value.className = "grading-access-value";
+        value.title = `${item.label}: ${item.value}`;
+        const label = document.createElement("strong");
+        label.textContent = `${item.label}:`;
+        const text = document.createElement("span");
+        text.textContent = item.value;
+        value.append(label, text);
+        wrapper.appendChild(value);
     }
 
     return wrapper;
-}
-
-function staffEntryFieldsForParticipation(experiment, participation) {
-    return (experiment.accessFields || []).filter((field) => {
-        const appliesToCondition = field.conditionId === null || field.conditionId === participation.conditionId;
-        return appliesToCondition && field.valueSource === "staff_entry" && field.valueType !== "appointment";
-    });
 }
 
 function fieldValueMap(record) {

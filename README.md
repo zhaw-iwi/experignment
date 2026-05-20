@@ -84,6 +84,9 @@ It supports:
 - opening experiment-specific editing by clicking an experiment in the overview
 - opening experiment-specific grading from the overview
 - showing the access reveal time and compact access values in grading, with link fields rendered as labeled buttons
+- filtering and sorting the grading table by each data column
+- building a checked participation selection in the grading modal and applying bulk grading actions
+- showing a navbar status indicator while backend requests are running
 - listing registered students who have not opened access yet in the grading view
 - setting appointment text
 - resetting participations
@@ -106,4 +109,4 @@ php tests/api_smoke_test.php
 ```
 
 `api_smoke_test.php` uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable.
-When SQLite support is available, it covers the student claim/retrieval flow, slot capacity enforcement, management setup actions, allowlist removal guards, participant selection and clearing, condition assignment and clearing, access-pool import, staff-entered access values, confirmation, appointment retrieval, reset, and randomization.
+When SQLite support is available, it covers the student claim/retrieval flow, slot capacity enforcement, management setup actions, allowlist removal guards, participant selection and clearing, condition assignment and clearing, access-pool import, staff-entered access values, confirmation, bulk grading operations, appointment retrieval, reset, and randomization.

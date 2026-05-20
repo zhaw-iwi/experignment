@@ -438,6 +438,52 @@ try {
     assert_equals($response['body']['error_code'] ?? null, 'SLOT_FULL', 'full slot should be explicit');
 
     $response = make_request($baseUrl, 'GET', '/api/manage/dashboard.php');
+    assert_equals($response['status'], 200, 'dashboard should load before bulk grading operations');
+    $bobParticipation = dashboard_participation($response['body'] ?? [], 'bob@students.zhaw.ch', 2);
+    $charlieParticipation = dashboard_participation($response['body'] ?? [], 'charlie@students.zhaw.ch', 2);
+    $bobParticipationId = (int) ($bobParticipation['id'] ?? 0);
+    $charlieParticipationId = (int) ($charlieParticipation['id'] ?? 0);
+    assert_true($bobParticipationId > 0, 'bob participation id should exist');
+    assert_true($charlieParticipationId > 0, 'charlie participation id should exist');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'bulk_grading_operation',
+        'experimentId' => 2,
+        'operation' => 'confirm',
+        'participationIds' => [$bobParticipationId, $charlieParticipationId],
+    ]);
+    assert_equals($response['status'], 200, 'bulk grading should confirm selected participations');
+    assert_equals($response['body']['affectedCount'] ?? null, 2, 'bulk confirmation should affect two participations');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'bulk_grading_operation',
+        'experimentId' => 2,
+        'operation' => 'unconfirm',
+        'participationIds' => [$charlieParticipationId],
+    ]);
+    assert_equals($response['status'], 200, 'bulk grading should remove selected confirmations');
+    assert_equals($response['body']['affectedCount'] ?? null, 1, 'bulk unconfirmation should affect one participation');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'bulk_grading_operation',
+        'experimentId' => 1,
+        'operation' => 'confirm',
+        'participationIds' => [$bobParticipationId],
+    ]);
+    assert_equals($response['status'], 422, 'bulk grading should reject participations from another experiment');
+    assert_equals($response['body']['error_code'] ?? null, 'PARTICIPATION_SCOPE_MISMATCH', 'bulk grading scope guard should be explicit');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'bulk_grading_operation',
+        'experimentId' => 2,
+        'operation' => 'reset',
+        'participationIds' => [$charlieParticipationId],
+    ]);
+    assert_equals($response['status'], 200, 'bulk grading should reset selected participations');
+    assert_equals($response['body']['affectedCount'] ?? null, 1, 'bulk reset should affect one participation');
+    assert_equals($response['body']['releasedAccessCount'] ?? null, 1, 'bulk reset should release one access row');
+
+    $response = make_request($baseUrl, 'GET', '/api/manage/dashboard.php');
     assert_equals($response['status'], 200, 'management dashboard should return 200');
     assert_equals($response['body']['allowedStudentCount'] ?? null, 3, 'dashboard should count allowed students');
     assert_equals(count($response['body']['allowedStudents'] ?? []), 3, 'dashboard should include allowed student list');

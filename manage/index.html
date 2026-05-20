@@ -24,6 +24,10 @@
                 <span>0 Studierende</span>
             </button>
             <button id="reloadButton" type="button" class="btn btn-outline-secondary btn-sm">Aktualisieren</button>
+            <div id="systemStatus" class="system-status is-ready" role="status" aria-live="polite">
+                <span id="systemStatusIcon" class="system-status-icon" aria-hidden="true"></span>
+                <span id="systemStatusText">Bereit</span>
+            </div>
         </div>
     </div>
 </nav>
@@ -327,7 +331,10 @@
                     <h2 id="gradingTitle" class="h5 mb-1">Anrechnung</h2>
                     <div class="text-secondary small">Teilnahmen bestätigen, konfigurierte Zugangsdaten und Zeitdaten eintragen und Zuweisungen zurücksetzen.</div>
                 </div>
-                <button id="backFromGradingButton" type="button" class="btn btn-outline-secondary btn-sm">Zur Übersicht</button>
+                <div class="button-row justify-content-md-end">
+                    <button id="bulkGradingButton" type="button" class="btn btn-primary btn-sm">Sammelaktion</button>
+                    <button id="backFromGradingButton" type="button" class="btn btn-outline-secondary btn-sm">Zur Übersicht</button>
+                </div>
             </div>
             <div class="table-responsive">
                 <table class="table table-sm align-middle mb-0">
@@ -347,6 +354,49 @@
         </section>
     </section>
 </main>
+
+<div id="bulkGradingModal" class="modal fade" tabindex="-1" aria-labelledby="bulkGradingModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="bulkGradingModalTitle" class="modal-title h5">Sammelaktion Anrechnung</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+            </div>
+            <div class="modal-body">
+                <div id="bulkGradingModalMessage" class="mb-3 d-none"></div>
+                <div class="row g-2 align-items-end mb-3">
+                    <div class="col-md-4">
+                        <label for="bulkGradingOperation" class="form-label">Aktion</label>
+                        <select id="bulkGradingOperation" class="form-select">
+                            <option value="confirm">Anrechnen</option>
+                            <option value="unconfirm">Anrechnung entfernen</option>
+                            <option value="reset">Reset</option>
+                        </select>
+                    </div>
+                    <div class="col-md-8">
+                        <div class="button-row justify-content-md-end">
+                            <button id="bulkSelectAllButton" type="button" class="btn btn-outline-primary">Alle sichtbaren auswählen</button>
+                            <button id="bulkSelectNoneButton" type="button" class="btn btn-outline-secondary">Auswahl leeren</button>
+                            <span id="bulkSelectedCount" class="badge text-bg-light">0 ausgewählt</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                        <tr id="bulkParticipationHeaderRow"></tr>
+                        </thead>
+                        <tbody id="bulkParticipationRows"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Abbrechen</button>
+                <button id="bulkExecuteButton" type="button" class="btn btn-primary">Ausführen</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <div id="participantModal" class="modal fade" tabindex="-1" aria-labelledby="participantModalTitle" aria-hidden="true">
     <div class="modal-dialog modal-xl modal-dialog-scrollable">

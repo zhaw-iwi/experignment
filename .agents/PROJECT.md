@@ -18,6 +18,7 @@ Experiment Assignment App is a PHP/MySQL application for managing student experi
 - [x] 2026-05-12: Grading no-shows card
 - [x] 2026-05-13: Condition-scoped pool import guard
 - [x] 2026-05-20: Conditionless pool import guard correction
+- [x] 2026-05-20: Grading filters and bulk operations
 - [ ] Migration from historical live database dump
 - [ ] Staff authentication
 
@@ -574,3 +575,52 @@ Observed on 2026-05-20:
 ### Next Steps
 
 - Browser-check the live management page after deployment with both conditionless and conditioned pool-field experiments.
+
+## 2026-05-20: Grading Filters And Bulk Operations
+
+### Goal
+
+Make experiment grading easier to operate by adding column-level filters/sort controls and checked-row bulk actions for `Anrechnen`, `Anrechnung entfernen`, and `Reset`.
+
+### What Changed
+
+- Added reusable data-column text accessors for the grading table.
+- Added per-column search, value selection, and sort dropdowns above the grading table.
+- Added a grading bulk-action modal with the same filter/sort model, explicit row checkboxes, select-all-visible, and clear-selection controls.
+- Changed the bulk modal dropdown behavior to build selections additively, so repeated student searches keep previously checked rows until they are unchecked in the table.
+- Added `bulk_grading_operation` to `api/manage/actions.php` for confirm, unconfirm, and reset operations across selected participation IDs.
+- Made bulk reset transactional and set-based across pool-row release, participation field values, appointments, slot choices, and participation deletion.
+- Added a navbar ready/working indicator backed by a shared frontend request counter.
+- Added smoke-test coverage for bulk confirm, bulk unconfirm, bulk reset, and wrong-experiment participation rejection.
+- Updated README and project context documentation.
+
+### How To Run
+
+Open `manage/index.html`, choose an experiment, open Step 3 `Anrechnung`, use the column dropdowns to filter/sort the table, or open `Sammelaktion` to select checked rows and execute a bulk grading action.
+
+### How To Test
+
+- `php -l api/manage/actions.php`
+- `node --check manage/manage.js`
+- `php tests/validation_test.php`
+- `php tests/text_quality_test.php`
+- `php tests/api_smoke_test.php`
+
+Observed on 2026-05-20:
+
+- PHP syntax check passed for `api/manage/actions.php`.
+- JavaScript syntax check passed for `manage/manage.js`.
+- `validation_test.php` passed.
+- `text_quality_test.php` passed.
+- `api_smoke_test.php` passed.
+
+### Known Issues And Decisions
+
+- Bulk actions send explicit participation IDs to the server, not client-side filter definitions.
+- Server-side validation rejects selected IDs that do not belong to the requested experiment.
+- `Entfernen` means removing `Angerechnet`; `Reset` remains the operation that deletes the participation assignment and releases access data.
+- Main-table dropdowns remain normal filters; bulk-modal dropdowns are additive selection helpers.
+
+### Next Steps
+
+- Browser-check the grading table dropdown behavior and the bulk modal on representative deployed data.

@@ -257,6 +257,45 @@ function participation_count_for_experiment(PDO $pdo, int $experimentId): int
     );
 }
 
+function required_int_list(mixed $rawValues, string $errorCode, string $message): array
+{
+    if (!is_array($rawValues)) {
+        fail(422, $errorCode, $message);
+    }
+
+    $ids = [];
+    foreach ($rawValues as $rawValue) {
+        $id = nullable_int($rawValue);
+        if ($id === null || $id <= 0) {
+            fail(422, $errorCode, $message);
+        }
+        $ids[] = $id;
+    }
+
+    $ids = array_values(array_unique($ids));
+    if ($ids === []) {
+        fail(422, $errorCode, $message);
+    }
+
+    if (count($ids) > 500) {
+        fail(422, 'TOO_MANY_PARTICIPATIONS', 'Bitte wählen Sie höchstens 500 Zuweisungen auf einmal aus.');
+    }
+
+    return $ids;
+}
+
+function bind_int_list(array $ids, string $prefix, array &$params): string
+{
+    $placeholders = [];
+    foreach ($ids as $index => $id) {
+        $key = $prefix . $index;
+        $placeholders[] = ':' . $key;
+        $params[$key] = $id;
+    }
+
+    return implode(', ', $placeholders);
+}
+
 function delete_randomization_runs_for_experiment(PDO $pdo, int $experimentId): void
 {
     $deleteAllocations = $pdo->prepare(
@@ -1463,6 +1502,98 @@ try {
         $pdo->commit();
 
         json_response(200, ['runId' => $runId, 'totalStudents' => count($emails)]);
+    }
+
+    if ($action === 'bulk_grading_operation') {
+        $experimentId = required_int($payload['experimentId'] ?? null, 'INVALID_EXPERIMENT', 'Bitte wählen Sie ein Experiment aus.');
+        if (fetch_experiment($pdo, $experimentId) === null) {
+            fail(404, 'EXPERIMENT_NOT_FOUND', 'Das Experiment wurde nicht gefunden.');
+        }
+
+        $operation = clean_text($payload['operation'] ?? '');
+        if (!in_array($operation, ['confirm', 'unconfirm', 'reset'], true)) {
+            fail(422, 'INVALID_BULK_OPERATION', 'Bitte wählen Sie eine gültige Sammelaktion aus.');
+        }
+
+        $participationIds = required_int_list(
+            $payload['participationIds'] ?? null,
+            'INVALID_PARTICIPATIONS',
+            'Bitte wählen Sie mindestens eine Zuweisung aus.'
+        );
+        $idParams = [];
+        $idSql = bind_int_list($participationIds, 'participation_id_', $idParams);
+        $scopedParams = ['experiment_id' => $experimentId] + $idParams;
+        $lookup = $pdo->prepare(
+            'SELECT id, access_pool_row_id
+             FROM participations
+             WHERE experiment_id = :experiment_id
+               AND id IN (' . $idSql . ')'
+        );
+        $lookup->execute($scopedParams);
+        $participations = $lookup->fetchAll();
+        if (count($participations) !== count($participationIds)) {
+            fail(422, 'PARTICIPATION_SCOPE_MISMATCH', 'Die Auswahl enthält Zuweisungen aus einem anderen Experiment oder nicht mehr vorhandene Zuweisungen.');
+        }
+
+        if ($operation === 'confirm' || $operation === 'unconfirm') {
+            $update = $pdo->prepare(
+                'UPDATE participations
+                 SET confirmed_at = ' . ($operation === 'confirm' ? 'CURRENT_TIMESTAMP' : 'NULL') . '
+                 WHERE experiment_id = :experiment_id
+                   AND id IN (' . $idSql . ')'
+            );
+            $update->execute($scopedParams);
+            json_response(200, [
+                'operation' => $operation,
+                'selectedCount' => count($participationIds),
+                'affectedCount' => $update->rowCount(),
+            ]);
+        }
+
+        $pdo->beginTransaction();
+        $releasePoolRows = $pdo->prepare(
+            'UPDATE access_pool_rows
+             SET is_assigned = 0,
+                 assigned_participation_id = NULL,
+                 assigned_at = NULL
+             WHERE assigned_participation_id IN (' . $idSql . ')'
+        );
+        $releasePoolRows->execute($idParams);
+        $releasedAccessCount = $releasePoolRows->rowCount();
+
+        $deleteFieldValues = $pdo->prepare(
+            'DELETE FROM participation_field_values
+             WHERE participation_id IN (' . $idSql . ')'
+        );
+        $deleteFieldValues->execute($idParams);
+
+        $deleteAppointments = $pdo->prepare(
+            'DELETE FROM appointments
+             WHERE participation_id IN (' . $idSql . ')'
+        );
+        $deleteAppointments->execute($idParams);
+
+        $deleteSlotChoices = $pdo->prepare(
+            'DELETE FROM slot_choices
+             WHERE participation_id IN (' . $idSql . ')'
+        );
+        $deleteSlotChoices->execute($idParams);
+
+        $deleteParticipations = $pdo->prepare(
+            'DELETE FROM participations
+             WHERE experiment_id = :experiment_id
+               AND id IN (' . $idSql . ')'
+        );
+        $deleteParticipations->execute($scopedParams);
+        $affectedCount = $deleteParticipations->rowCount();
+        $pdo->commit();
+
+        json_response(200, [
+            'operation' => $operation,
+            'selectedCount' => count($participationIds),
+            'affectedCount' => $affectedCount,
+            'releasedAccessCount' => $releasedAccessCount,
+        ]);
     }
 
     if ($action === 'toggle_confirmation') {

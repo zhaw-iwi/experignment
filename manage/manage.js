@@ -6,15 +6,23 @@ const state = {
     participantDraftEmails: new Set(),
     conditionAssignmentDraft: new Map(),
     conditionAssignmentSource: "manual",
+    gradingFilters: {},
+    gradingSort: { key: "", direction: "asc" },
+    bulkFilters: {},
+    bulkSort: { key: "", direction: "asc" },
+    bulkSelectedIds: new Set(),
 };
 
 const PAGE_ALERT_TIMEOUT_MS = 5000;
 const messageTimers = new WeakMap();
+let activeRequestCount = 0;
 
 const dom = {
     brandHomeButton: document.getElementById("brandHomeButton"),
     allowedCount: document.getElementById("allowedCount"),
     reloadButton: document.getElementById("reloadButton"),
+    systemStatus: document.getElementById("systemStatus"),
+    systemStatusText: document.getElementById("systemStatusText"),
     phaseStepper: document.getElementById("phaseStepper"),
     pageTitle: document.getElementById("pageTitle"),
     messageArea: document.getElementById("messageArea"),
@@ -129,9 +137,19 @@ const dom = {
     slotIsActive: document.getElementById("slotIsActive"),
     slotChoiceList: document.getElementById("slotChoiceList"),
     gradingTitle: document.getElementById("gradingTitle"),
+    bulkGradingButton: document.getElementById("bulkGradingButton"),
     backFromGradingButton: document.getElementById("backFromGradingButton"),
     participationHeaderRow: document.getElementById("participationHeaderRow"),
     participationRows: document.getElementById("participationRows"),
+    bulkGradingModal: document.getElementById("bulkGradingModal"),
+    bulkGradingModalMessage: document.getElementById("bulkGradingModalMessage"),
+    bulkGradingOperation: document.getElementById("bulkGradingOperation"),
+    bulkSelectAllButton: document.getElementById("bulkSelectAllButton"),
+    bulkSelectNoneButton: document.getElementById("bulkSelectNoneButton"),
+    bulkSelectedCount: document.getElementById("bulkSelectedCount"),
+    bulkParticipationHeaderRow: document.getElementById("bulkParticipationHeaderRow"),
+    bulkParticipationRows: document.getElementById("bulkParticipationRows"),
+    bulkExecuteButton: document.getElementById("bulkExecuteButton"),
     noShowTitle: document.getElementById("noShowTitle"),
     noShowList: document.getElementById("noShowList"),
 };
@@ -140,6 +158,7 @@ document.addEventListener("DOMContentLoaded", () => {
     wireEvents();
     dom.participantRandomSeed.value = defaultSeed();
     dom.conditionRandomSeed.value = defaultSeed();
+    updateSystemStatus();
     loadDashboard();
 });
 
@@ -162,6 +181,22 @@ function wireEvents() {
     });
     dom.backFromGradingButton.addEventListener("click", () => {
         openOverview();
+    });
+    dom.bulkGradingButton.addEventListener("click", () => {
+        openBulkGradingModal();
+    });
+    dom.bulkSelectAllButton.addEventListener("click", () => {
+        for (const participation of bulkVisibleRows()) {
+            state.bulkSelectedIds.add(participation.id);
+        }
+        renderBulkGradingModal();
+    });
+    dom.bulkSelectNoneButton.addEventListener("click", () => {
+        state.bulkSelectedIds.clear();
+        renderBulkGradingModal();
+    });
+    dom.bulkExecuteButton.addEventListener("click", async () => {
+        await executeBulkGradingOperation();
     });
 
     dom.experimentForm.addEventListener("submit", async (event) => {
@@ -324,6 +359,7 @@ function wireEvents() {
         [dom.staffValueModal, dom.staffValueModalMessage],
         [dom.poolModal, dom.poolModalMessage],
         [dom.conditionAssignmentModal, dom.conditionAssignmentModalMessage],
+        [dom.bulkGradingModal, dom.bulkGradingModalMessage],
     ]) {
         modal.addEventListener("hidden.bs.modal", () => {
             clearMessage(messageTarget);
@@ -559,6 +595,13 @@ function openExperiment(experimentId) {
 }
 
 function openGrading(experimentId) {
+    if (state.selectedExperimentId !== experimentId) {
+        state.gradingFilters = {};
+        state.gradingSort = { key: "", direction: "asc" };
+        state.bulkFilters = {};
+        state.bulkSort = { key: "", direction: "asc" };
+        state.bulkSelectedIds.clear();
+    }
     state.view = "grading";
     state.selectedExperimentId = experimentId;
     renderAll();
@@ -930,7 +973,7 @@ function renderPoolSection() {
         dom.poolRowList.appendChild(item);
     }
 
-    if (rows.length === 0) {
+    if (visibleRows.length === 0) {
         dom.poolRowList.appendChild(emptyText("Keine Pool-Zeilen vorhanden."));
     }
 }
@@ -1560,26 +1603,39 @@ function renderGrading() {
     dom.noShowList.innerHTML = "";
     dom.gradingTitle.textContent = experiment ? `${experiment.name} Anrechnung` : "Anrechnung";
     dom.noShowTitle.textContent = "No-Shows";
+    dom.bulkGradingButton.disabled = true;
 
     if (state.view !== "grading" || !experiment) {
         return;
     }
 
     const columns = gradingColumns(experiment);
+    const dataColumns = columns.filter((column) => column.filterable !== false);
+    const rows = participationRowsForExperiment(experiment);
+    const visibleRows = filteredAndSortedRows(rows, dataColumns, state.gradingFilters, state.gradingSort);
+    dom.bulkGradingButton.disabled = rows.length === 0;
     for (const column of columns) {
-        const header = document.createElement("th");
-        header.textContent = column.title;
-        if (column.headerClass) {
-            header.className = column.headerClass;
-        }
-        dom.participationHeaderRow.appendChild(header);
+        appendDataHeaderCell(dom.participationHeaderRow, column, rows, state.gradingFilters, state.gradingSort, () => {
+            renderGradingRows();
+        });
     }
 
-    const rows = (state.dashboard.participations || []).filter((participation) => {
-        return participation.experimentId === experiment.id;
-    });
+    renderGradingRows(experiment, columns, rows, visibleRows);
+    renderNoShows(experiment, rows);
+}
 
-    for (const participation of rows) {
+function renderGradingRows(
+    experiment = selectedExperiment(),
+    columns = experiment ? gradingColumns(experiment) : [],
+    rows = experiment ? participationRowsForExperiment(experiment) : [],
+    visibleRows = filteredAndSortedRows(rows, columns.filter((column) => column.filterable !== false), state.gradingFilters, state.gradingSort)
+) {
+    dom.participationRows.innerHTML = "";
+    if (!experiment) {
+        return;
+    }
+
+    for (const participation of visibleRows) {
         const row = document.createElement("tr");
         for (const column of columns) {
             appendTableCell(row, column.render(participation), column.cellClass || "");
@@ -1587,75 +1643,548 @@ function renderGrading() {
         dom.participationRows.appendChild(row);
     }
 
-    if (rows.length === 0) {
+    if (visibleRows.length === 0) {
         const row = document.createElement("tr");
         const cell = document.createElement("td");
         cell.colSpan = columns.length;
         cell.className = "text-secondary py-3";
-        cell.textContent = "Keine Zuweisungen für dieses Experiment vorhanden.";
+        cell.textContent = rows.length === 0
+            ? "Keine Zuweisungen für dieses Experiment vorhanden."
+            : "Keine Zuweisungen entsprechen den aktuellen Filtern.";
         row.appendChild(cell);
         dom.participationRows.appendChild(row);
     }
-
-    renderNoShows(experiment, rows);
 }
 
-function gradingColumns(experiment) {
+function participationRowsForExperiment(experiment) {
+    return (state.dashboard.participations || []).filter((participation) => {
+        return participation.experimentId === experiment.id;
+    });
+}
+
+function gradingColumns(experiment, options = {}) {
+    const includeActions = options.includeActions !== false;
     const columns = [
         {
+            key: "email",
             title: "E-Mail",
+            getText: (participation) => participation.email,
             render: (participation) => participation.email,
         },
     ];
 
     if (experiment.conditionMode !== "none" && (experiment.conditions || []).length > 0) {
         columns.push({
+            key: "condition",
             title: "Bedingung",
+            getText: (participation) => participation.conditionName || "-",
             render: (participation) => participation.conditionName || "-",
         });
     }
 
     columns.push({
+        key: "assignedAt",
         title: "Zugang geöffnet",
         cellClass: "text-nowrap",
+        getText: (participation) => formatDateTime(participation.assignedAt),
         render: (participation) => formatDateTime(participation.assignedAt),
     });
 
     if (experiment.requiresTimeSlot) {
         columns.push({
+            key: "slot",
             title: "Zeitslot",
+            getText: (participation) => participation.slotLabel || "-",
             render: (participation) => participation.slotLabel || "-",
         });
     }
 
     if (hasGradingAccessFields(experiment)) {
         columns.push({
+            key: "access",
             title: "Zugangsdaten",
+            getText: (participation) => gradingAccessText(participation),
             render: (participation) => gradingAccessDisplay(participation),
         });
     }
 
     if (hasAppointmentFlow(experiment)) {
         columns.push({
+            key: "appointment",
             title: "Uhrzeit",
+            getText: (participation) => participation.appointmentText || "",
             render: (participation) => appointmentEditor(participation),
         });
     }
 
-    columns.push(
-        {
-            title: "Angerechnet",
-            render: (participation) => participation.confirmed ? "Ja" : "Nein",
-        },
-        {
+    columns.push({
+        key: "confirmed",
+        title: "Angerechnet",
+        getText: (participation) => participation.confirmed ? "Ja" : "Nein",
+        render: (participation) => participation.confirmed ? "Ja" : "Nein",
+    });
+
+    if (includeActions) {
+        columns.push({
+            key: "actions",
+            filterable: false,
+            sortable: false,
             title: "Aktionen",
             headerClass: "text-end",
             cellClass: "text-end",
+            getText: () => "",
             render: (participation) => gradingActions(participation),
-        }
-    );
+        });
+    }
 
     return columns;
+}
+
+function gradingAccessText(participation) {
+    return (participation.accessItems || [])
+        .filter((item) => item.valueType !== "appointment" && item.value !== null && item.value !== undefined && String(item.value) !== "")
+        .map((item) => `${item.label}: ${item.value}`)
+        .join(" | ");
+}
+
+function appendDataHeaderCell(row, column, rows, filters, sort, onChange, options = {}) {
+    const header = document.createElement("th");
+    if (column.headerClass) {
+        header.className = column.headerClass;
+    }
+    if (column.filterable === false) {
+        header.textContent = column.title;
+        row.appendChild(header);
+        return;
+    }
+    header.appendChild(dataFilterDropdown(column, rows, filters, sort, onChange, options));
+    row.appendChild(header);
+}
+
+function dataFilterDropdown(column, rows, filters, sort, onChange, options = {}) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "dropdown data-filter";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "btn btn-sm dropdown-toggle data-filter-button";
+    button.setAttribute("data-bs-toggle", "dropdown");
+    button.setAttribute("data-bs-auto-close", "outside");
+    button.setAttribute("data-bs-boundary", "viewport");
+    button.setAttribute("aria-expanded", "false");
+    button.textContent = column.title;
+    updateDataFilterButtonState(button, column, filters, sort);
+
+    const menu = document.createElement("div");
+    menu.className = "dropdown-menu data-filter-menu p-3";
+    menu.addEventListener("click", (event) => event.stopPropagation());
+
+    const sortGroup = document.createElement("div");
+    sortGroup.className = "button-row mb-2";
+    const ascending = smallButton("A-Z", sort.key === column.key && sort.direction === "asc" ? "primary" : "outline-secondary");
+    ascending.addEventListener("click", () => {
+        sort.key = column.key;
+        sort.direction = "asc";
+        updateDataFilterButtonState(button, column, filters, sort);
+        onChange();
+    });
+    const descending = smallButton("Z-A", sort.key === column.key && sort.direction === "desc" ? "primary" : "outline-secondary");
+    descending.addEventListener("click", () => {
+        sort.key = column.key;
+        sort.direction = "desc";
+        updateDataFilterButtonState(button, column, filters, sort);
+        onChange();
+    });
+    sortGroup.append(ascending, descending);
+    menu.appendChild(sortGroup);
+
+    const search = document.createElement("input");
+    search.type = "search";
+    search.className = "form-control form-control-sm mb-2";
+    search.placeholder = "Suchen";
+    search.value = filters[column.key]?.search || "";
+    search.addEventListener("keydown", (event) => {
+        event.stopPropagation();
+    });
+    search.addEventListener("input", () => {
+        setFilterSearch(filters, column.key, search.value);
+        if (options.mode === "select") {
+            addUniqueBulkCandidate(rows, options.columns || [column], filters, sort);
+        }
+        renderFilterValueList(valueList, column, rows, filters, onChange, options);
+        updateDataFilterButtonState(button, column, filters, sort);
+        onChange();
+    });
+    menu.appendChild(search);
+
+    const valueActions = document.createElement("div");
+    valueActions.className = "button-row mb-2";
+    const selectAll = smallButton("Alle", "outline-secondary");
+    selectAll.addEventListener("click", () => {
+        setFilterValues(filters, column.key, null);
+        renderFilterValueList(valueList, column, rows, filters, onChange, options);
+        updateDataFilterButtonState(button, column, filters, sort);
+        onChange();
+    });
+    const selectNone = smallButton("Keine", "outline-secondary");
+    selectNone.addEventListener("click", () => {
+        setFilterValues(filters, column.key, []);
+        renderFilterValueList(valueList, column, rows, filters, onChange, options);
+        updateDataFilterButtonState(button, column, filters, sort);
+        onChange();
+    });
+    const clear = smallButton("Zurücksetzen", "outline-secondary");
+    clear.addEventListener("click", () => {
+        delete filters[column.key];
+        if (sort.key === column.key) {
+            sort.key = "";
+            sort.direction = "asc";
+        }
+        search.value = "";
+        renderFilterValueList(valueList, column, rows, filters, onChange, options);
+        updateDataFilterButtonState(button, column, filters, sort);
+        onChange();
+    });
+    valueActions.append(selectAll, selectNone, clear);
+    menu.appendChild(valueActions);
+
+    const valueList = document.createElement("div");
+    valueList.className = "data-filter-values";
+    renderFilterValueList(valueList, column, rows, filters, onChange, options);
+    menu.appendChild(valueList);
+
+    wrapper.append(button, menu);
+    bootstrap.Dropdown.getOrCreateInstance(button, {
+        popperConfig(defaultConfig) {
+            return {
+                ...defaultConfig,
+                strategy: "fixed",
+            };
+        },
+    });
+    return wrapper;
+}
+
+function updateDataFilterButtonState(button, column, filters, sort) {
+    const active = filterIsActive(filters[column.key]) || sort.key === column.key;
+    button.classList.toggle("btn-primary", active);
+    button.classList.toggle("btn-outline-secondary", !active);
+}
+
+function renderFilterValueList(valueList, column, rows, filters, onChange, options = {}) {
+    valueList.innerHTML = "";
+    const allValues = distinctColumnValues(rows, column);
+    const search = (filters[column.key]?.search || "").toLowerCase();
+    const values = allValues.filter((value) => search === "" || value.toLowerCase().includes(search));
+    const selectedValues = selectedFilterValues(filters[column.key], allValues);
+    for (const value of values) {
+        const item = document.createElement("label");
+        item.className = "form-check data-filter-value";
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.className = "form-check-input";
+        checkbox.checked = options.mode === "select"
+            ? bulkColumnValueIsSelected(rows, column, value)
+            : selectedValues.has(value);
+        checkbox.addEventListener("change", () => {
+            if (options.mode === "select") {
+                addBulkRowsByColumnValue(rows, column, value);
+                onChange();
+                renderFilterValueList(valueList, column, rows, filters, onChange, options);
+                return;
+            }
+            const nextValues = new Set(selectedValues);
+            if (checkbox.checked) {
+                nextValues.add(value);
+            } else {
+                nextValues.delete(value);
+            }
+            setFilterValues(filters, column.key, Array.from(nextValues));
+            onChange();
+        });
+        const text = document.createElement("span");
+        text.className = "form-check-label";
+        text.textContent = value || "-";
+        item.append(checkbox, text);
+        valueList.appendChild(item);
+    }
+    if (values.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "text-secondary small";
+        empty.textContent = "Keine Werte";
+        valueList.appendChild(empty);
+    }
+}
+
+function addUniqueBulkCandidate(rows, columns, filters, sort) {
+    const candidates = filteredAndSortedRows(rows, columns, filters, sort);
+    if (candidates.length === 1) {
+        state.bulkSelectedIds.add(candidates[0].id);
+    }
+}
+
+function addBulkRowsByColumnValue(rows, column, value) {
+    for (const row of rows) {
+        if (columnText(column, row) === value) {
+            state.bulkSelectedIds.add(row.id);
+        }
+    }
+}
+
+function bulkColumnValueIsSelected(rows, column, value) {
+    const matchingRows = rows.filter((row) => columnText(column, row) === value);
+    return matchingRows.length > 0 && matchingRows.every((row) => state.bulkSelectedIds.has(row.id));
+}
+
+function filterIsActive(filter) {
+    return Boolean(filter && ((filter.search || "") !== "" || Array.isArray(filter.values)));
+}
+
+function distinctColumnValues(rows, column) {
+    return Array.from(new Set(rows.map((row) => columnText(column, row))))
+        .sort((left, right) => left.localeCompare(right, "de", { numeric: true, sensitivity: "base" }));
+}
+
+function selectedFilterValues(filter, allValues) {
+    if (!filter || !Array.isArray(filter.values)) {
+        return new Set(allValues);
+    }
+    return new Set(filter.values);
+}
+
+function setFilterSearch(filters, key, value) {
+    filters[key] = filters[key] || {};
+    filters[key].search = value.trim();
+    if (filters[key].search === "" && !Array.isArray(filters[key].values)) {
+        delete filters[key];
+    }
+}
+
+function setFilterValues(filters, key, values) {
+    filters[key] = filters[key] || {};
+    if (values === null) {
+        delete filters[key].values;
+    } else {
+        filters[key].values = values;
+    }
+    if ((filters[key].search || "") === "" && !Array.isArray(filters[key].values)) {
+        delete filters[key];
+    }
+}
+
+function filteredAndSortedRows(rows, columns, filters, sort) {
+    const columnByKey = new Map(columns.map((column) => [column.key, column]));
+    const filtered = rows.filter((row) => {
+        for (const column of columns) {
+            const filter = filters[column.key];
+            if (!filter) {
+                continue;
+            }
+            const text = columnText(column, row);
+            if ((filter.search || "") !== "" && !text.toLowerCase().includes(filter.search.toLowerCase())) {
+                return false;
+            }
+            if (Array.isArray(filter.values) && !filter.values.includes(text)) {
+                return false;
+            }
+        }
+        return true;
+    });
+
+    const sortColumn = columnByKey.get(sort.key);
+    if (!sortColumn) {
+        return filtered;
+    }
+
+    return filtered.slice().sort((left, right) => {
+        const comparison = columnText(sortColumn, left).localeCompare(
+            columnText(sortColumn, right),
+            "de",
+            { numeric: true, sensitivity: "base" }
+        );
+        return sort.direction === "desc" ? -comparison : comparison;
+    });
+}
+
+function columnText(column, row) {
+    return String(column.getText(row) ?? "");
+}
+
+function cloneFilterState(filters) {
+    const cloned = {};
+    for (const [key, filter] of Object.entries(filters)) {
+        cloned[key] = {
+            search: filter.search || "",
+        };
+        if (Array.isArray(filter.values)) {
+            cloned[key].values = filter.values.slice();
+        }
+    }
+    return cloned;
+}
+
+function bulkVisibleRows() {
+    const experiment = selectedExperiment();
+    if (!experiment) {
+        return [];
+    }
+    const columns = gradingColumns(experiment, { includeActions: false });
+    return bulkDisplayedRows(participationRowsForExperiment(experiment), columns);
+}
+
+function bulkDisplayedRows(rows, columns) {
+    const candidateRows = filteredAndSortedRows(rows, columns, state.bulkFilters, state.bulkSort);
+    const displayed = new Map();
+    for (const row of candidateRows) {
+        displayed.set(row.id, row);
+    }
+    for (const row of rows) {
+        if (state.bulkSelectedIds.has(row.id)) {
+            displayed.set(row.id, row);
+        }
+    }
+    return filteredAndSortedRows(Array.from(displayed.values()), columns, {}, state.bulkSort);
+}
+
+function openBulkGradingModal() {
+    const experiment = selectedExperiment();
+    if (!experiment) {
+        return;
+    }
+    state.bulkFilters = cloneFilterState(state.gradingFilters);
+    state.bulkSort = { ...state.gradingSort };
+    state.bulkSelectedIds = new Set();
+    dom.bulkGradingOperation.value = "confirm";
+    clearMessage(dom.bulkGradingModalMessage);
+    renderBulkGradingModal();
+    bootstrap.Modal.getOrCreateInstance(dom.bulkGradingModal).show();
+}
+
+function renderBulkGradingModal() {
+    const experiment = selectedExperiment();
+    dom.bulkParticipationHeaderRow.innerHTML = "";
+    dom.bulkParticipationRows.innerHTML = "";
+    if (!experiment) {
+        dom.bulkSelectedCount.textContent = "0 ausgewählt";
+        return;
+    }
+
+    const columns = gradingColumns(experiment, { includeActions: false });
+    const rows = participationRowsForExperiment(experiment);
+    const visibleRows = bulkDisplayedRows(rows, columns);
+
+    const checkboxHeader = document.createElement("th");
+    checkboxHeader.className = "bulk-check-column";
+    checkboxHeader.textContent = "";
+    dom.bulkParticipationHeaderRow.appendChild(checkboxHeader);
+    for (const column of columns) {
+        appendDataHeaderCell(dom.bulkParticipationHeaderRow, column, rows, state.bulkFilters, state.bulkSort, () => {
+            renderBulkGradingRows();
+        }, { mode: "select", columns });
+    }
+
+    renderBulkGradingRows(experiment, columns, rows, visibleRows);
+}
+
+function renderBulkGradingRows(
+    experiment = selectedExperiment(),
+    columns = experiment ? gradingColumns(experiment, { includeActions: false }) : [],
+    rows = experiment ? participationRowsForExperiment(experiment) : [],
+    visibleRows = bulkDisplayedRows(rows, columns)
+) {
+    dom.bulkParticipationRows.innerHTML = "";
+    if (!experiment) {
+        dom.bulkSelectedCount.textContent = "0 ausgewählt";
+        return;
+    }
+
+    for (const participation of visibleRows) {
+        const row = document.createElement("tr");
+        const checkboxCell = document.createElement("td");
+        checkboxCell.className = "bulk-check-column";
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.className = "form-check-input";
+        checkbox.checked = state.bulkSelectedIds.has(participation.id);
+        checkbox.addEventListener("change", () => {
+            if (checkbox.checked) {
+                state.bulkSelectedIds.add(participation.id);
+            } else {
+                state.bulkSelectedIds.delete(participation.id);
+            }
+            renderBulkSelectionCount();
+        });
+        checkboxCell.appendChild(checkbox);
+        row.appendChild(checkboxCell);
+        for (const column of columns) {
+            appendTableCell(row, bulkColumnDisplay(column, participation), column.cellClass || "");
+        }
+        dom.bulkParticipationRows.appendChild(row);
+    }
+
+    if (visibleRows.length === 0) {
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = columns.length + 1;
+        cell.className = "text-secondary py-3";
+        cell.textContent = rows.length === 0
+            ? "Keine Zuweisungen für dieses Experiment vorhanden."
+            : "Keine Zuweisungen entsprechen den aktuellen Filtern.";
+        row.appendChild(cell);
+        dom.bulkParticipationRows.appendChild(row);
+    }
+
+    renderBulkSelectionCount();
+}
+
+function renderBulkSelectionCount() {
+    dom.bulkSelectedCount.textContent = `${state.bulkSelectedIds.size} ausgewählt`;
+    dom.bulkExecuteButton.disabled = state.bulkSelectedIds.size === 0;
+}
+
+function bulkColumnDisplay(column, participation) {
+    if (column.key === "access") {
+        return gradingAccessDisplay(participation);
+    }
+    const value = columnText(column, participation);
+    const wrapper = document.createElement("span");
+    wrapper.className = "bulk-cell-text";
+    wrapper.textContent = value || "-";
+    wrapper.title = value;
+    return wrapper;
+}
+
+async function executeBulkGradingOperation() {
+    const experiment = selectedExperiment();
+    if (!experiment) {
+        return;
+    }
+    const participationIds = Array.from(state.bulkSelectedIds);
+    if (participationIds.length === 0) {
+        showMessage("Bitte wählen Sie mindestens eine Zuweisung aus.", "warning", dom.bulkGradingModalMessage);
+        return;
+    }
+    const operation = dom.bulkGradingOperation.value;
+    if (operation === "reset" && !window.confirm(`${participationIds.length} Zuweisungen zurücksetzen und Zugangsdaten freigeben?`)) {
+        return;
+    }
+    const payload = await postAction("bulk_grading_operation", {
+        experimentId: experiment.id,
+        operation,
+        participationIds,
+    }, dom.bulkGradingModalMessage);
+    bootstrap.Modal.getOrCreateInstance(dom.bulkGradingModal).hide();
+    state.bulkSelectedIds.clear();
+    await loadDashboard(`${payload.affectedCount} Studierende ${bulkOperationResultLabel(operation)}.`);
+}
+
+function bulkOperationResultLabel(operation) {
+    if (operation === "confirm") {
+        return "angerechnet";
+    }
+    if (operation === "unconfirm") {
+        return "aus der Anrechnung entfernt";
+    }
+    return "zurückgesetzt";
 }
 
 function hasGradingAccessFields(experiment) {
@@ -2120,26 +2649,49 @@ function escapeHtml(value) {
 }
 
 async function apiRequest(url, options) {
-    const response = await fetch(url, {
-        headers: {
-            "Content-Type": "application/json",
-        },
-        credentials: "same-origin",
-        ...options,
-    });
-
-    let payload = {};
+    beginRequest();
     try {
-        payload = await response.json();
-    } catch (error) {
-        if (!response.ok) {
-            throw new Error("Die Serverantwort konnte nicht gelesen werden.");
+        const response = await fetch(url, {
+            headers: {
+                "Content-Type": "application/json",
+            },
+            credentials: "same-origin",
+            ...options,
+        });
+
+        let payload = {};
+        try {
+            payload = await response.json();
+        } catch (error) {
+            if (!response.ok) {
+                throw new Error("Die Serverantwort konnte nicht gelesen werden.");
+            }
         }
-    }
 
-    if (!response.ok) {
-        throw new Error(payload.message || "Die Anfrage ist fehlgeschlagen.");
-    }
+        if (!response.ok) {
+            throw new Error(payload.message || "Die Anfrage ist fehlgeschlagen.");
+        }
 
-    return payload;
+        return payload;
+    } finally {
+        endRequest();
+    }
+}
+
+function beginRequest() {
+    activeRequestCount++;
+    updateSystemStatus();
+}
+
+function endRequest() {
+    activeRequestCount = Math.max(0, activeRequestCount - 1);
+    updateSystemStatus();
+}
+
+function updateSystemStatus() {
+    const working = activeRequestCount > 0;
+    dom.systemStatus.classList.toggle("is-working", working);
+    dom.systemStatus.classList.toggle("is-ready", !working);
+    dom.systemStatusText.textContent = working ? "Arbeitet" : "Bereit";
+    dom.systemStatus.setAttribute("aria-label", working ? "System arbeitet" : "System bereit");
 }

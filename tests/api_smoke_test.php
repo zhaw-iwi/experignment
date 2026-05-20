@@ -477,6 +477,42 @@ try {
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'save_experiment',
+        'name' => 'Conditionless Assigned Experiment',
+        'description' => 'Condition mode selected before any conditions exist',
+        'eligibilityMode' => 'all_allowed',
+        'conditionMode' => 'assigned',
+        'requiresTimeSlot' => false,
+        'isOpen' => false,
+        'sortOrder' => 25,
+    ]);
+    assert_equals($response['status'], 201, 'management should create conditionless assigned experiment');
+    $conditionlessExperimentId = (int) ($response['body']['experimentId'] ?? 0);
+    assert_true($conditionlessExperimentId > 0, 'conditionless experiment id should be present');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_access_field',
+        'experimentId' => $conditionlessExperimentId,
+        'conditionId' => null,
+        'label' => 'Conditionless PID',
+        'fieldKey' => 'conditionless_pid',
+        'valueType' => 'pid',
+        'valueSource' => 'pool',
+        'isVisible' => true,
+        'sortOrder' => 10,
+    ]);
+    assert_equals($response['status'], 201, 'management should create conditionless pool field');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'import_pool_rows',
+        'experimentId' => $conditionlessExperimentId,
+        'conditionId' => null,
+        'table' => "conditionless_pid\nC001",
+    ]);
+    assert_equals($response['status'], 201, 'conditionless experiment should allow experiment-wide pool import');
+    assert_equals($response['body']['imported'] ?? null, 1, 'one conditionless pool row should be imported');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_experiment',
         'name' => 'Managed Experiment',
         'description' => 'Created through management API',
         'eligibilityMode' => 'selected',

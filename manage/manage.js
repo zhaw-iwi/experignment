@@ -74,6 +74,7 @@ const dom = {
     poolRowList: document.getElementById("poolRowList"),
     poolModal: document.getElementById("poolModal"),
     poolModalMessage: document.getElementById("poolModalMessage"),
+    poolModalConditionGroup: document.getElementById("poolModalConditionGroup"),
     poolModalConditionId: document.getElementById("poolModalConditionId"),
     poolConditionHint: document.getElementById("poolConditionHint"),
     poolSample: document.getElementById("poolSample"),
@@ -995,6 +996,13 @@ function poolFieldsForCondition(experiment, conditionId) {
 
 function configurePoolConditionSelect(experiment) {
     const emptyOption = dom.poolModalConditionId.querySelector('option[value=""]');
+    const hasConditions = experimentHasConditionRows(experiment);
+    dom.poolModalConditionGroup.classList.toggle("d-none", !hasConditions);
+    dom.poolModalConditionId.disabled = !hasConditions;
+    if (!hasConditions) {
+        dom.poolModalConditionId.value = "";
+    }
+
     if (!poolImportRequiresCondition(experiment)) {
         if (emptyOption) {
             emptyOption.disabled = false;
@@ -1017,7 +1025,11 @@ function configurePoolConditionSelect(experiment) {
 }
 
 function poolImportRequiresCondition(experiment) {
-    return Boolean(experiment) && experiment.conditionMode !== "none";
+    return Boolean(experiment) && experiment.conditionMode !== "none" && experimentHasConditionRows(experiment);
+}
+
+function experimentHasConditionRows(experiment) {
+    return (experiment?.conditions || []).length > 0;
 }
 
 function samplePoolValue(field, index) {

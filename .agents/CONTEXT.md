@@ -76,7 +76,7 @@ Access field sources:
 
 Bundled pool rows are important. If a student receives a PID, personalized survey link, and chatbot link, these values must stay coupled by one `access_pool_rows` record. Do not assign each value from independent pools.
 
-Pool import is experiment/condition-scoped, not tied to the currently edited field form. The management UI exposes a separate pool card when at least one saved access field uses `pool`; the modal generates a CSV sample from the applicable pool-sourced field keys. For experiments with conditions, imports must target one condition because a participation can reserve only one bundled pool row; the condition CSV includes both experiment-wide pool fields and fields specific to that condition. Experiment-wide pool imports are only for experiments without conditions. Importing replaces unassigned pool rows for the selected scope. The experiment pool can be cleared only while none of its rows has been assigned.
+Pool import is experiment/condition-scoped, not tied to the currently edited field form. The management UI exposes a separate pool card when at least one saved access field uses `pool`; the modal generates a CSV sample from the applicable pool-sourced field keys. For experiments with configured condition rows, imports must target one condition because a participation can reserve only one bundled pool row; the condition CSV includes both experiment-wide pool fields and fields specific to that condition. Experiment-wide pool imports are used while no conditions exist, even if the condition mode has already been set up. Importing replaces unassigned pool rows for the selected scope. The experiment pool can be cleared only while none of its rows has been assigned.
 
 Typical examples:
 

@@ -93,7 +93,7 @@ It supports:
 
 Access fields that already back assigned runtime values cannot be deleted or structurally changed. Existing slot capacity cannot be reduced below the number of submitted slot choices.
 
-For experiments with conditions, access-pool imports are condition-scoped. Choose the target condition in the pool modal; the CSV for that condition includes both experiment-wide pool fields and fields specific to that condition. The experiment-wide pool option is only for experiments without conditions.
+For experiments with configured condition rows, access-pool imports are condition-scoped. Choose the target condition in the pool modal; the CSV for that condition includes both experiment-wide pool fields and fields specific to that condition. The experiment-wide pool option is used while no conditions exist.
 
 Staff authentication is intentionally not implemented yet; the page relies on a hidden URL.
 

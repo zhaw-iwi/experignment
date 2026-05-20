@@ -81,7 +81,7 @@ function require_valid_pool_import_scope(PDO $pdo, int $experimentId, ?int $cond
         fail(404, 'EXPERIMENT_NOT_FOUND', 'Das Experiment wurde nicht gefunden.');
     }
 
-    if ($conditionId === null && $experiment['condition_mode'] !== 'none') {
+    if ($conditionId === null && $experiment['condition_mode'] !== 'none' && fetch_conditions($pdo, $experimentId) !== []) {
         fail(
             422,
             'CONDITION_POOL_REQUIRED',

@@ -17,6 +17,7 @@ Experiment Assignment App is a PHP/MySQL application for managing student experi
 - [x] 2026-05-12: Experiment overview click-to-edit
 - [x] 2026-05-12: Grading no-shows card
 - [x] 2026-05-13: Condition-scoped pool import guard
+- [x] 2026-05-20: Conditionless pool import guard correction
 - [ ] Migration from historical live database dump
 - [ ] Staff authentication
 
@@ -530,3 +531,46 @@ Open `manage/index.html`, select a conditioned experiment with pool fields, and 
 ### Next Steps
 
 - Remove any unused experiment-wide pool rows from affected conditioned experiments before opening them to students.
+
+## 2026-05-20: Conditionless Pool Import Guard Correction
+
+### Goal
+
+Keep the condition-scoped pool import guard for experiments that actually have conditions, while allowing experiment-wide pool imports before any condition rows exist.
+
+### What Changed
+
+- Changed the management pool modal to require a condition only when condition mode is active and the experiment has saved condition rows.
+- Hid and disabled the pool condition selector for conditionless experiments.
+- Changed the server-side `CONDITION_POOL_REQUIRED` guard to use the same saved-condition-row rule.
+- Added smoke-test coverage for an assigned-mode experiment with no conditions importing an experiment-wide pool.
+- Updated README and project context documentation.
+
+### How To Run
+
+Open `manage/index.html`, choose a saved experiment with no conditions, add or select an access field sourced from `Aus Pool zuweisen`, and open `Zugangsdaten-Pool bereitstellen`.
+
+### How To Test
+
+- `php -l api/manage/actions.php`
+- `node --check manage/manage.js`
+- `php tests/validation_test.php`
+- `php tests/text_quality_test.php`
+- `php tests/api_smoke_test.php`
+
+Observed on 2026-05-20:
+
+- PHP syntax check passed for `api/manage/actions.php`.
+- JavaScript syntax check passed for `manage/manage.js`.
+- `validation_test.php` passed.
+- `text_quality_test.php` passed.
+- `api_smoke_test.php` passed.
+
+### Known Issues And Decisions
+
+- Condition mode alone does not make a pool import condition-scoped; at least one saved condition row must exist.
+- Existing condition-scoped guard behavior is preserved for experiments with configured conditions.
+
+### Next Steps
+
+- Browser-check the live management page after deployment with both conditionless and conditioned pool-field experiments.

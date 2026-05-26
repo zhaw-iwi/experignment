@@ -190,8 +190,10 @@ Run:
 
 - `php tests/validation_test.php`
 - `php tests/text_quality_test.php`
+- `php tests/js_regression_test.php`
 - `php tests/api_smoke_test.php`
 
+`js_regression_test.php` currently catches management-client regressions that JavaScript syntax checking would miss, including pool-rendering references to grading-only variables.
 The API smoke test uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable. When SQLite support is available, it covers student claim/retrieval, slot choice capacity, management setup, allowlist removal guards, participant selection and clearing, condition assignment and clearing, bundled pool import, staff-entered access values, confirmation, appointment retrieval, participation reset, and randomization.
 
 On the current development machine as last observed:
@@ -199,6 +201,7 @@ On the current development machine as last observed:
 - PHP syntax checks passed.
 - `validation_test.php` passed.
 - `text_quality_test.php` passed.
+- `js_regression_test.php` passed.
 - `api_smoke_test.php` passed after enabling `pdo_sqlite` in the active PHP `php.ini`.
 - `node --check manage/manage.js` passed.
 

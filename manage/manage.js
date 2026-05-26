@@ -973,7 +973,7 @@ function renderPoolSection() {
         dom.poolRowList.appendChild(item);
     }
 
-    if (visibleRows.length === 0) {
+    if (rows.length === 0) {
         dom.poolRowList.appendChild(emptyText("Keine Pool-Zeilen vorhanden."));
     }
 }

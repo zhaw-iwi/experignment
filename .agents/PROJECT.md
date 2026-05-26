@@ -19,6 +19,7 @@ Experiment Assignment App is a PHP/MySQL application for managing student experi
 - [x] 2026-05-13: Condition-scoped pool import guard
 - [x] 2026-05-20: Conditionless pool import guard correction
 - [x] 2026-05-20: Grading filters and bulk operations
+- [x] 2026-05-26: Pool renderer grading regression fix
 - [ ] Migration from historical live database dump
 - [ ] Staff authentication
 
@@ -624,3 +625,45 @@ Observed on 2026-05-20:
 ### Next Steps
 
 - Browser-check the grading table dropdown behavior and the bulk modal on representative deployed data.
+
+## 2026-05-26: Pool Renderer Grading Regression Fix
+
+### Goal
+
+Restore the management setup and grading views for experiments that use access-pool fields.
+
+### What Changed
+
+- Fixed `renderPoolSection()` so its empty-state check uses the pool section's local `rows` variable instead of the grading table's `visibleRows` variable.
+- Added `tests/js_regression_test.php` to catch this management-client regression before deployment.
+- Updated README and context documentation with the new regression test command.
+
+### How To Run
+
+Open `manage/index.html`, choose an experiment with pool-sourced access fields, and open either `Setup bearbeiten` or `Anrechnung`.
+
+### How To Test
+
+- `node --check manage/manage.js`
+- `php tests/validation_test.php`
+- `php tests/text_quality_test.php`
+- `php tests/js_regression_test.php`
+- `php tests/api_smoke_test.php`
+
+Observed on 2026-05-26:
+
+- JavaScript syntax check passed for `manage/manage.js`.
+- PHP syntax checks passed for all PHP files.
+- `validation_test.php` passed.
+- `text_quality_test.php` passed.
+- `js_regression_test.php` passed.
+- `api_smoke_test.php` passed.
+
+### Known Issues And Decisions
+
+- The live database dump was used only to confirm that the affected experiments all have pool-sourced access fields. It was not modified.
+- This is a frontend rendering regression; no schema or API contract changed.
+
+### Next Steps
+
+- Browser-check `Experiment 1c`, `Experiment 2a`, `Experiment 2b`, and `Experiment 2c` in both setup and grading views after deployment.

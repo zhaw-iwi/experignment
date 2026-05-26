@@ -105,8 +105,10 @@ Staff authentication is intentionally not implemented yet; the page relies on a 
 ```bash
 php tests/validation_test.php
 php tests/text_quality_test.php
+php tests/js_regression_test.php
 php tests/api_smoke_test.php
 ```
 
+`js_regression_test.php` catches focused management-client regressions that are not covered by JavaScript syntax checking alone.
 `api_smoke_test.php` uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable.
 When SQLite support is available, it covers the student claim/retrieval flow, slot capacity enforcement, management setup actions, allowlist removal guards, participant selection and clearing, condition assignment and clearing, access-pool import, staff-entered access values, confirmation, bulk grading operations, appointment retrieval, reset, and randomization.

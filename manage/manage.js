@@ -1,5 +1,11 @@
 const state = {
     dashboard: null,
+    report: null,
+    reportSort: {
+        key: "studentCode",
+        direction: "asc",
+    },
+    reportFilter: "",
     selectedExperimentId: null,
     view: "overview",
     participantDraftMode: "selected",
@@ -19,6 +25,7 @@ let activeRequestCount = 0;
 
 const dom = {
     brandHomeButton: document.getElementById("brandHomeButton"),
+    reportButton: document.getElementById("reportButton"),
     allowedCount: document.getElementById("allowedCount"),
     reloadButton: document.getElementById("reloadButton"),
     systemStatus: document.getElementById("systemStatus"),
@@ -28,6 +35,7 @@ const dom = {
     messageArea: document.getElementById("messageArea"),
     overviewView: document.getElementById("overviewView"),
     allowedStudentsView: document.getElementById("allowedStudentsView"),
+    reportsView: document.getElementById("reportsView"),
     experimentView: document.getElementById("experimentView"),
     gradingView: document.getElementById("gradingView"),
     overviewExperimentCard: document.getElementById("overviewExperimentCard"),
@@ -60,6 +68,11 @@ const dom = {
     allowEmail: document.getElementById("allowEmail"),
     bulkAllowForm: document.getElementById("bulkAllowForm"),
     bulkAllowEmails: document.getElementById("bulkAllowEmails"),
+    downloadReportCsvButton: document.getElementById("downloadReportCsvButton"),
+    reportStudentFilter: document.getElementById("reportStudentFilter"),
+    reportSummary: document.getElementById("reportSummary"),
+    reportHeaderRow: document.getElementById("reportHeaderRow"),
+    reportRows: document.getElementById("reportRows"),
     accessPanel: document.getElementById("accessPanel"),
     fieldList: document.getElementById("fieldList"),
     fieldFormTitle: document.getElementById("fieldFormTitle"),
@@ -166,7 +179,16 @@ function wireEvents() {
     dom.brandHomeButton.addEventListener("click", () => {
         openOverview();
     });
-    dom.reloadButton.addEventListener("click", () => loadDashboard());
+    dom.reportButton.addEventListener("click", () => {
+        openReports();
+    });
+    dom.reloadButton.addEventListener("click", () => {
+        if (state.view === "reports") {
+            loadReport();
+            return;
+        }
+        loadDashboard();
+    });
     dom.allowedCount.addEventListener("click", () => {
         openAllowedStudents();
     });
@@ -262,6 +284,13 @@ function wireEvents() {
         });
         dom.bulkAllowEmails.value = "";
         await loadDashboard(`${payload.created} E-Mails importiert, ${payload.skipped} bereits vorhanden.`);
+    });
+    dom.reportStudentFilter.addEventListener("input", () => {
+        state.reportFilter = dom.reportStudentFilter.value;
+        renderReportTable();
+    });
+    dom.downloadReportCsvButton.addEventListener("click", () => {
+        downloadReportCsv();
     });
 
     dom.valueSource.addEventListener("change", () => {
@@ -404,6 +433,21 @@ async function loadDashboard(successMessage = "") {
     }
 }
 
+async function loadReport(successMessage = "") {
+    try {
+        const report = await apiRequest("../api/manage/report.php", { method: "GET" });
+        state.report = report;
+        renderAll();
+        if (typeof successMessage === "string" && successMessage !== "") {
+            showMessage(successMessage, "success");
+        } else {
+            clearMessage();
+        }
+    } catch (error) {
+        showMessage(error.message || "Report konnte nicht geladen werden.", "danger");
+    }
+}
+
 function normalizeViewState() {
     const experiment = selectedExperiment();
     if (state.view === "experiment" && state.selectedExperimentId === null) {
@@ -439,6 +483,7 @@ function renderAll() {
     renderSlotSection();
     renderSlotChoices();
     renderGrading();
+    renderReport();
 }
 
 function renderAllowedCount(count) {
@@ -456,6 +501,7 @@ function renderAllowedCount(count) {
 function renderViews() {
     dom.overviewView.classList.toggle("d-none", state.view !== "overview");
     dom.allowedStudentsView.classList.toggle("d-none", state.view !== "allowed");
+    dom.reportsView.classList.toggle("d-none", state.view !== "reports");
     dom.experimentView.classList.toggle("d-none", state.view !== "experiment");
     dom.gradingView.classList.toggle("d-none", state.view !== "grading");
 }
@@ -474,18 +520,33 @@ function renderPageTitle() {
         dom.pageTitle.textContent = "Zugelassene Studierende";
         return;
     }
+    if (state.view === "reports") {
+        dom.pageTitle.textContent = "Reports";
+        return;
+    }
     dom.pageTitle.textContent = "Experimente";
 }
 
 function renderPhaseStepper() {
     dom.phaseStepper.innerHTML = "";
-    dom.phaseStepper.classList.toggle("is-single", state.view === "allowed");
+    dom.phaseStepper.classList.toggle("is-single", state.view === "allowed" || state.view === "reports");
 
     if (state.view === "allowed") {
         addPhaseStep({
             number: 0,
             title: "Zugelassene Studierende",
             meta: "Globale Liste aller E-Mail-Adressen, die Experimente sehen können.",
+            current: true,
+            disabled: false,
+            onClick: null,
+        });
+        return;
+    }
+    if (state.view === "reports") {
+        addPhaseStep({
+            number: 0,
+            title: "Reports",
+            meta: "Tabellarische Anrechnungen f\u00fcr den Notenexport.",
             current: true,
             disabled: false,
             onClick: null,
@@ -570,6 +631,13 @@ function openAllowedStudents() {
     state.view = "allowed";
     state.selectedExperimentId = null;
     renderAll();
+}
+
+function openReports() {
+    state.view = "reports";
+    state.selectedExperimentId = null;
+    renderAll();
+    loadReport();
 }
 
 function openOverview() {
@@ -751,6 +819,190 @@ function renderAllowedStudentList() {
         item.appendChild(row);
         dom.allowedStudentList.appendChild(item);
     }
+}
+
+function renderReport() {
+    if (state.view !== "reports") {
+        return;
+    }
+    if (dom.reportStudentFilter.value !== state.reportFilter) {
+        dom.reportStudentFilter.value = state.reportFilter;
+    }
+    renderReportTable();
+}
+
+function renderReportTable() {
+    dom.reportHeaderRow.innerHTML = "";
+    dom.reportRows.innerHTML = "";
+
+    if (!state.report) {
+        dom.reportSummary.textContent = "Report wird geladen.";
+        dom.downloadReportCsvButton.disabled = true;
+        return;
+    }
+
+    const columns = state.report.columns || [];
+    const rows = filteredSortedReportRows();
+    dom.downloadReportCsvButton.disabled = columns.length === 0;
+    dom.reportSummary.textContent = `${rows.length}/${(state.report.rows || []).length} Studierende, ${Math.max(0, columns.length - 1)} Experimente`;
+
+    if (columns.length === 0) {
+        const header = document.createElement("th");
+        header.textContent = "Report";
+        dom.reportHeaderRow.appendChild(header);
+        appendReportEmptyRow("Keine Reportdaten vorhanden.", 1);
+        return;
+    }
+
+    for (const column of columns) {
+        const header = document.createElement("th");
+        header.scope = "col";
+        header.setAttribute("aria-sort", reportAriaSort(column.key));
+
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "report-sort-button";
+        button.addEventListener("click", () => {
+            setReportSort(column.key);
+        });
+
+        const label = document.createElement("span");
+        label.textContent = column.label;
+        const icon = document.createElement("i");
+        icon.className = reportSortIcon(column.key);
+        icon.setAttribute("aria-hidden", "true");
+        button.append(label, icon);
+        header.appendChild(button);
+        dom.reportHeaderRow.appendChild(header);
+    }
+
+    if (rows.length === 0) {
+        appendReportEmptyRow("Keine Studierenden passen zum Filter.", columns.length);
+        return;
+    }
+
+    for (const reportRow of rows) {
+        const row = document.createElement("tr");
+        for (const column of columns) {
+            const value = reportCellValue(reportRow, column.key);
+            const className = column.key === "studentCode" ? "text-nowrap fw-semibold" : "text-center report-value-cell";
+            appendTableCell(row, value, className);
+        }
+        dom.reportRows.appendChild(row);
+    }
+}
+
+function appendReportEmptyRow(text, columnCount) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = columnCount;
+    cell.className = "text-secondary py-3";
+    cell.textContent = text;
+    row.appendChild(cell);
+    dom.reportRows.appendChild(row);
+}
+
+function filteredSortedReportRows() {
+    const filter = state.reportFilter.trim().toLowerCase();
+    const rows = [...(state.report?.rows || [])].filter((row) => {
+        if (filter === "") {
+            return true;
+        }
+        return String(row.studentCode || "").toLowerCase().includes(filter);
+    });
+
+    rows.sort((left, right) => compareReportRows(left, right));
+    return rows;
+}
+
+function compareReportRows(left, right) {
+    const key = state.reportSort.key;
+    const direction = state.reportSort.direction === "desc" ? -1 : 1;
+    const leftValue = reportSortValue(left, key);
+    const rightValue = reportSortValue(right, key);
+    let comparison = 0;
+
+    if (typeof leftValue === "number" && typeof rightValue === "number") {
+        comparison = leftValue - rightValue;
+    } else {
+        comparison = String(leftValue).localeCompare(String(rightValue));
+    }
+
+    if (comparison === 0 && key !== "studentCode") {
+        comparison = String(left.studentCode || "").localeCompare(String(right.studentCode || ""));
+    }
+
+    return comparison * direction;
+}
+
+function reportSortValue(row, key) {
+    if (key === "studentCode") {
+        return row.studentCode || "";
+    }
+    return Number(row.values?.[key] || 0);
+}
+
+function reportCellValue(row, key) {
+    if (key === "studentCode") {
+        return row.studentCode || "";
+    }
+    return String(Number(row.values?.[key] || 0));
+}
+
+function setReportSort(key) {
+    if (state.reportSort.key === key) {
+        state.reportSort.direction = state.reportSort.direction === "asc" ? "desc" : "asc";
+    } else {
+        state.reportSort = {
+            key,
+            direction: key === "studentCode" ? "asc" : "desc",
+        };
+    }
+    renderReportTable();
+}
+
+function reportAriaSort(key) {
+    if (state.reportSort.key !== key) {
+        return "none";
+    }
+    return state.reportSort.direction === "asc" ? "ascending" : "descending";
+}
+
+function reportSortIcon(key) {
+    if (state.reportSort.key !== key) {
+        return "bi bi-arrow-down-up";
+    }
+    return state.reportSort.direction === "asc" ? "bi bi-arrow-up" : "bi bi-arrow-down";
+}
+
+function downloadReportCsv() {
+    if (!state.report) {
+        return;
+    }
+    const columns = state.report.columns || [];
+    const rows = filteredSortedReportRows();
+    const delimiter = ";";
+    const lines = [
+        columns.map((column) => csvCell(column.label, delimiter)).join(delimiter),
+        ...rows.map((row) => columns.map((column) => csvCell(reportCellValue(row, column.key), delimiter)).join(delimiter)),
+    ];
+    const blob = new Blob(["\uFEFF", lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `experiment-report-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+}
+
+function csvCell(value, delimiter) {
+    const text = String(value ?? "");
+    if (text.includes(delimiter) || text.includes('"') || text.includes("\n") || text.includes("\r")) {
+        return `"${text.replaceAll('"', '""')}"`;
+    }
+    return text;
 }
 
 function renderExperimentForm() {

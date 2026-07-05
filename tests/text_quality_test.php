@@ -22,6 +22,7 @@ $codeFiles = [
     __DIR__ . '/../api/_bootstrap.php',
     __DIR__ . '/../api/manage/actions.php',
     __DIR__ . '/../api/manage/dashboard.php',
+    __DIR__ . '/../api/manage/report.php',
     __DIR__ . '/../api/manage/search_students.php',
     __DIR__ . '/../api/manage/reset_student.php',
     __DIR__ . '/../api/manage/add_allowed_student.php',

@@ -94,6 +94,28 @@ function dashboard_participation(array $dashboard, string $email, int $experimen
     throw new RuntimeException('Participation not found in dashboard: ' . $email);
 }
 
+function report_row_by_code(array $report, string $studentCode): array
+{
+    foreach ($report['rows'] ?? [] as $row) {
+        if (($row['studentCode'] ?? '') === $studentCode) {
+            return $row;
+        }
+    }
+
+    throw new RuntimeException('Report row not found: ' . $studentCode);
+}
+
+function report_value_for_experiment(array $report, array $row, int $experimentId): int
+{
+    foreach ($report['columns'] ?? [] as $column) {
+        if (($column['experimentId'] ?? null) === $experimentId) {
+            return (int) (($row['values'] ?? [])[$column['key']] ?? 0);
+        }
+    }
+
+    throw new RuntimeException('Report column not found for experiment: ' . $experimentId);
+}
+
 function dashboard_access_field_by_key(array $dashboard, int $experimentId, string $key): array
 {
     foreach ($dashboard['experiments'] ?? [] as $experiment) {
@@ -409,6 +431,13 @@ try {
     assert_equals(count($aliceParticipation['accessItems'] ?? []), 2, 'dashboard participation should include access items');
     assert_equals(access_item_by_key($aliceParticipation, 'survey')['valueType'] ?? null, 'url', 'dashboard should expose URL access field type');
     assert_equals(access_item_by_key($aliceParticipation, 'survey')['label'] ?? null, 'Umfrage', 'dashboard should expose URL access field label');
+
+    $response = make_request($baseUrl, 'GET', '/api/manage/report.php');
+    assert_equals($response['status'], 200, 'report should return 200');
+    assert_equals(count($response['body']['columns'] ?? []), 3, 'report should include student code plus experiment columns');
+    $aliceReportRow = report_row_by_code($response['body'] ?? [], 'alice');
+    assert_equals($aliceReportRow['email'] ?? null, 'alice@students.zhaw.ch', 'report row should retain source email');
+    assert_equals(report_value_for_experiment($response['body'] ?? [], $aliceReportRow, 1), 0, 'unconfirmed claim should not count as approved');
 
     $response = make_request($baseUrl, 'POST', '/api/claim.php', [
         'email' => 'bob@students.zhaw.ch',
@@ -886,6 +915,13 @@ try {
     ]);
     assert_equals($response['status'], 200, 'management should toggle confirmation');
     assert_equals($response['body']['confirmed'] ?? null, true, 'confirmation should be enabled');
+
+    $response = make_request($baseUrl, 'GET', '/api/manage/report.php');
+    assert_equals($response['status'], 200, 'report should load after confirmation');
+    $danaReportRow = report_row_by_code($response['body'] ?? [], 'dana');
+    $erikReportRow = report_row_by_code($response['body'] ?? [], 'erik');
+    assert_equals(report_value_for_experiment($response['body'] ?? [], $danaReportRow, $managedExperimentId), 1, 'confirmed participation should count as approved');
+    assert_equals(report_value_for_experiment($response['body'] ?? [], $erikReportRow, $managedExperimentId), 0, 'missing participation should stay zero');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'save_appointment',

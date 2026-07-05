@@ -7,6 +7,8 @@ require_once __DIR__ . '/../api/_bootstrap.php';
 $checks = [
     ['label' => 'valid student email', 'actual' => is_valid_student_email('user@students.zhaw.ch'), 'expected' => true],
     ['label' => 'reject non-student email', 'actual' => is_valid_student_email('user@example.com'), 'expected' => false],
+    ['label' => 'student code from email', 'actual' => student_code_from_email('USER@students.zhaw.ch'), 'expected' => 'user'],
+    ['label' => 'student code from raw value', 'actual' => student_code_from_email(' user '), 'expected' => 'user'],
     ['label' => 'valid eligibility mode', 'actual' => is_valid_eligibility_mode('all_allowed'), 'expected' => true],
     ['label' => 'reject eligibility mode', 'actual' => is_valid_eligibility_mode('public'), 'expected' => false],
     ['label' => 'valid condition mode', 'actual' => is_valid_condition_mode('student_choice'), 'expected' => true],

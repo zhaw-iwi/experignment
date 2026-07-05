@@ -20,6 +20,7 @@ Experiment Assignment App is a PHP/MySQL application for managing student experi
 - [x] 2026-05-20: Conditionless pool import guard correction
 - [x] 2026-05-20: Grading filters and bulk operations
 - [x] 2026-05-26: Pool renderer grading regression fix
+- [x] 2026-07-05: Tabular approval reports
 - [ ] Migration from historical live database dump
 - [ ] Staff authentication
 
@@ -371,6 +372,7 @@ Observed on 2026-05-12:
 - `node --check manage/manage.js` passed.
 - `validation_test.php` passed.
 - `text_quality_test.php` passed.
+- `js_regression_test.php` passed.
 - `api_smoke_test.php` passed.
 
 ### Known Issues And Decisions
@@ -667,3 +669,56 @@ Observed on 2026-05-26:
 ### Next Steps
 
 - Browser-check `Experiment 1c`, `Experiment 2a`, `Experiment 2b`, and `Experiment 2c` in both setup and grading views after deployment.
+
+## 2026-07-05: Tabular Approval Reports
+
+### Goal
+
+Add a management report that can be copied into grading workflows: one row per student, one `Kürzel` column, and one `0`/`1` column per experiment based on staff-confirmed `Angerechnet` status.
+
+### What Changed
+
+- Added `student_code_from_email()` to derive the ZHAW student `Kürzel` from the email local part.
+- Added `api/manage/report.php` as a read-only report endpoint over all allowed students and all experiments.
+- Added a Reports view to `manage/index.html` and `manage/manage.js`.
+- Added client-side report sorting by any column.
+- Added `Kürzel` filtering.
+- Added CSV download for the currently displayed filtered/sorted report table.
+- Styled compact report sort controls in `manage/manage.css`.
+- Extended validation, text-quality, and API smoke coverage for the report behavior.
+- Updated README and project context documentation.
+
+### How To Run
+
+Open `manage/index.html`, click `Reports` in the navbar, optionally filter by `Kürzel`, sort columns by clicking headers, and use `CSV herunterladen` to download the displayed table.
+
+### How To Test
+
+- `Get-ChildItem -Recurse -Filter *.php | ForEach-Object { php -l $_.FullName }`
+- `node --check manage/manage.js`
+- `php tests/validation_test.php`
+- `php tests/text_quality_test.php`
+- `php tests/js_regression_test.php`
+- `php tests/api_smoke_test.php`
+
+Observed on 2026-07-05:
+
+- PHP syntax checks passed for all PHP files.
+- `node --check manage/manage.js` passed.
+- `validation_test.php` passed.
+- `text_quality_test.php` passed.
+- `api_smoke_test.php` passed.
+- Local fixture-backed HTTP checks passed for `manage/index.html`, `api/manage/dashboard.php`, and `api/manage/report.php`.
+- A direct local check against the configured live MySQL database could not be completed because the database connection was unavailable from this environment.
+
+### Known Issues And Decisions
+
+- Report columns are all experiments sorted by experiment order and id.
+- Report rows are all globally allowed students.
+- A report value is `1` only when `participations.confirmed_at` is set; opened access without confirmation remains `0`.
+- The CSV uses semicolon delimiters and a UTF-8 BOM for practical Excel import in the German/Swiss locale.
+- The CSV reflects the currently displayed filtered/sorted table.
+
+### Next Steps
+
+- Browser-check the Reports view against the live MySQL-backed deployment data.

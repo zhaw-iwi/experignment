@@ -391,6 +391,44 @@ body {
     overflow: auto;
 }
 
+.report-table {
+    min-width: 720px;
+}
+
+.report-table th {
+    white-space: nowrap;
+}
+
+.report-sort-button {
+    display: inline-flex;
+    gap: 0.35rem;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    font-weight: 700;
+    text-align: inherit;
+    background: transparent;
+    border: 0;
+}
+
+.report-sort-button span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.report-sort-button:focus,
+.report-sort-button:hover {
+    color: #0d6efd;
+    outline: 0;
+}
+
+.report-value-cell {
+    font-variant-numeric: tabular-nums;
+}
+
 .grading-appointment-editor {
     min-width: 11rem;
 }

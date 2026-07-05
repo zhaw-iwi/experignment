@@ -135,6 +135,8 @@ The management UI should support:
 - Apply bulk grading actions to checked participations.
 - Show a navbar status indicator while backend requests are running.
 - View registered students who have not opened access yet.
+- View a cross-experiment approval report with one row per globally allowed student.
+- Sort approval-report columns, filter the report by student `Kürzel`, and download the displayed report as CSV.
 - Enter appointment text per participation.
 - Toggle `Angerechnet`.
 - Reset participations and release access data when desired.
@@ -142,6 +144,8 @@ The management UI should support:
 The current V2 staff API is intentionally centralized in `api/manage/actions.php`, with dashboard data from `api/manage/dashboard.php`. The staff UI is organized into an experiment overview, a dedicated global allowlist view, an experiment editing view, and an experiment-specific grading view. Experiment states are shown in a top workflow strip. In the overview, clicking an experiment row opens its editing view. The global allowlist is reached from the editable student-count badge in the navbar instead of being part of the experiment hierarchy, and the navbar brand returns to the experiment overview.
 
 The grading view builds its table from the selected experiment configuration. It always shows who opened access information and when (`Zugang geöffnet`, backed by `participations.assigned_at`), and only shows condition, slot, compact access-field, and appointment columns when those features are configured for the experiment. Link access fields are shown as buttons labeled with the field name instead of raw URLs. Staff can filter and sort each data column in the grading table. The bulk-grading modal uses the same column dropdown presentation as an additive selection builder: searches and value checks add matching rows to the checked set, while row checkboxes remove individual selections. Bulk actions apply `Anrechnen`, `Anrechnung entfernen`, or `Reset` to explicit participation IDs. Bulk reset releases access pool rows and deletes related runtime data inside one transaction. A separate no-shows card lists registered or eligible students who have not clicked `Teilnehmen` and therefore have no participation row yet.
+
+The Reports view is cross-experiment and read-only. It derives each student `Kürzel` from the local part of `allowed_students.student_email`, includes every globally allowed student as one row, and includes every experiment as a `0`/`1` column. A value is `1` only when the matching participation has `confirmed_at IS NOT NULL`; opening access without staff confirmation remains `0`. The CSV download is generated from the currently displayed filtered/sorted table.
 
 ## Student UI Responsibilities
 
@@ -173,6 +177,7 @@ The student UI should:
 - `api/claim.php`: claim or retrieve participation access.
 - `api/choose_slot.php`: slot choice endpoint.
 - `api/manage/dashboard.php`: staff dashboard payload.
+- `api/manage/report.php`: cross-experiment approval report payload for UI and CSV export.
 - `api/manage/actions.php`: staff write actions.
 - `assets/app.js`: student UI logic.
 - `manage/manage.js`: staff UI logic.
@@ -194,7 +199,7 @@ Run:
 - `php tests/api_smoke_test.php`
 
 `js_regression_test.php` currently catches management-client regressions that JavaScript syntax checking would miss, including pool-rendering references to grading-only variables.
-The API smoke test uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable. When SQLite support is available, it covers student claim/retrieval, slot choice capacity, management setup, allowlist removal guards, participant selection and clearing, condition assignment and clearing, bundled pool import, staff-entered access values, confirmation, appointment retrieval, participation reset, and randomization.
+The API smoke test uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable. When SQLite support is available, it covers student claim/retrieval, slot choice capacity, management setup, allowlist removal guards, participant selection and clearing, condition assignment and clearing, bundled pool import, staff-entered access values, confirmation, appointment retrieval, participation reset, randomization, and the cross-experiment approval report.
 
 On the current development machine as last observed:
 

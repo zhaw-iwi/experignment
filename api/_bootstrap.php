@@ -85,6 +85,14 @@ function normalize_student_email(string $email): string
     return strtolower(trim($email));
 }
 
+function student_code_from_email(string $email): string
+{
+    $normalized = normalize_student_email($email);
+    $atPosition = strpos($normalized, '@');
+
+    return $atPosition === false ? $normalized : substr($normalized, 0, $atPosition);
+}
+
 function is_valid_student_email(string $email): bool
 {
     return preg_match('/^[^@\s]+@students\.zhaw\.ch$/i', $email) === 1;

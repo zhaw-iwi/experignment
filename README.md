@@ -83,6 +83,9 @@ It supports:
 - deleting unused time slots
 - opening experiment-specific editing by clicking an experiment in the overview
 - opening experiment-specific grading from the overview
+- opening the Reports view from the navbar
+- viewing one report row per globally allowed student with `Kürzel` plus one `0`/`1` approval column per experiment
+- sorting report columns, filtering by `Kürzel`, and downloading the displayed report as CSV
 - showing the access reveal time and compact access values in grading, with link fields rendered as labeled buttons
 - filtering and sorting the grading table by each data column
 - building a checked participation selection in the grading modal and applying bulk grading actions
@@ -111,4 +114,5 @@ php tests/api_smoke_test.php
 
 `js_regression_test.php` catches focused management-client regressions that are not covered by JavaScript syntax checking alone.
 `api_smoke_test.php` uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable.
-When SQLite support is available, it covers the student claim/retrieval flow, slot capacity enforcement, management setup actions, allowlist removal guards, participant selection and clearing, condition assignment and clearing, access-pool import, staff-entered access values, confirmation, bulk grading operations, appointment retrieval, reset, and randomization.
+When SQLite support is available, it covers the student claim/retrieval flow, slot capacity enforcement, management setup actions, allowlist removal guards, participant selection and clearing, condition assignment and clearing, access-pool import, staff-entered access values, confirmation, bulk grading operations, appointment retrieval, reset, randomization, and the management approval report endpoint.
+The report coverage includes the distinction between opened access and confirmed `Angerechnet` approval.

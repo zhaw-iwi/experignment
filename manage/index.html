@@ -19,6 +19,10 @@
     <div class="management-navbar-inner">
         <button id="brandHomeButton" type="button" class="navbar-brand brand-home-button">Experiment Verwaltung</button>
         <div class="d-flex gap-2 align-items-center ms-lg-auto">
+            <button id="reportButton" type="button" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-table" aria-hidden="true"></i>
+                <span>Reports</span>
+            </button>
             <button id="allowedCount" type="button" class="btn btn-light btn-sm allowed-count-button">
                 <i class="bi bi-pencil-square" aria-hidden="true"></i>
                 <span>0 Studierende</span>
@@ -81,6 +85,40 @@
                 </form>
             </div>
             <div id="allowedStudentList" class="list-group list-group-flush"></div>
+        </section>
+    </section>
+
+    <section id="reportsView" class="view-stack d-none">
+        <section class="card shadow-sm">
+            <div class="card-header bg-white d-flex flex-column flex-md-row justify-content-between gap-2 align-items-md-center">
+                <div>
+                    <h2 class="h5 mb-1">Reports</h2>
+                    <div class="text-secondary small">Anrechnungen pro Studierenden und Experiment.</div>
+                </div>
+                <button id="downloadReportCsvButton" type="button" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-download" aria-hidden="true"></i>
+                    <span>CSV herunterladen</span>
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-8 col-lg-6">
+                        <label for="reportStudentFilter" class="form-label">Kürzel filtern</label>
+                        <input id="reportStudentFilter" class="form-control" type="search" autocomplete="off" placeholder="z.B. ahilaayu">
+                    </div>
+                    <div class="col-md-4 col-lg-6">
+                        <div id="reportSummary" class="text-secondary small"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0 report-table">
+                    <thead>
+                    <tr id="reportHeaderRow"></tr>
+                    </thead>
+                    <tbody id="reportRows"></tbody>
+                </table>
+            </div>
         </section>
     </section>
 

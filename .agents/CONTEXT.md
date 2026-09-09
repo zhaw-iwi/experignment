@@ -206,6 +206,7 @@ The student UI should:
 - `config/config.php`: environment-backed deployment configuration plus `EXPERIMENT_DB_DSN` test override.
 - `scripts/generate_admin_access_code.php`: one-time administrator access-code and hash generator.
 - `scripts/deployment_preflight.php`: production configuration, schema, empty-state, and rolled-back runtime-permission verifier.
+- `preflight/index.php`: disabled-by-default browser interface for the shared preflight, gated by `PREFLIGHT_ENABLED`, HTTPS, CSRF, and the administrator access code.
 - `docs/PRODUCTION_CUTOVER.md`: canonical phpMyAdmin deployment, semester activation, acceptance, and rollback checklist.
 - `api/_auth.php`: shared secure-session, authorization, CSRF, access-code validation, and throttling helpers.
 - `api/student_login.php`, `api/student_session.php`, `api/student_logout.php`: student authentication lifecycle.
@@ -229,6 +230,8 @@ Deploy the V3 schema into an empty database. Previous-semester records will not 
 Database deployment settings are loaded from process environment variables or the ignored root `.env` file. `EXPERIMENT_DB_DSN` remains available as an optional override, mostly for tests. The database password that previously appeared in tracked configuration must be rotated before the next deployment.
 
 The recommended cutover provisions a separate clean database and dedicated runtime account, imports `schema.sql` and the intentionally empty `seed.sql` in phpMyAdmin, then runs `php scripts/deployment_preflight.php --expect-empty`. The in-place fallback requires a verified backup followed by `drop_tables.sql` and a clean schema import; `reset_all_data.sql` is for an already-V3 schema, not V2 migration.
+
+Hosts without console access can temporarily set `PREFLIGHT_ENABLED=true` and use `/preflight/`. The browser endpoint runs the same checks after administrator-code and CSRF verification, must be accessed over HTTPS, and must be disabled again immediately after use.
 
 ## Tests And Local Limitations
 

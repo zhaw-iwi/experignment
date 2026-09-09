@@ -87,6 +87,55 @@ function make_request(
     ];
 }
 
+function make_form_request(string $baseUrl, string $path, array $fields): array
+{
+    $headers = [
+        'Accept: text/html,text/plain',
+        'Content-Type: application/x-www-form-urlencoded',
+    ];
+    $cookies = $GLOBALS['HTTP_COOKIES'] ?? [];
+    if (is_array($cookies) && $cookies !== []) {
+        $cookieValues = [];
+        foreach ($cookies as $name => $value) {
+            $cookieValues[] = $name . '=' . $value;
+        }
+        $headers[] = 'Cookie: ' . implode('; ', $cookieValues);
+    }
+
+    $context = stream_context_create([
+        'http' => [
+            'method' => 'POST',
+            'header' => implode("\r\n", $headers),
+            'content' => http_build_query($fields),
+            'ignore_errors' => true,
+            'timeout' => 10,
+        ],
+    ]);
+    $rawBody = @file_get_contents($baseUrl . $path, false, $context);
+    $rawBody = is_string($rawBody) ? $rawBody : '';
+    $responseHeaders = $http_response_header ?? [];
+    $status = 0;
+    if (isset($responseHeaders[0]) && preg_match('/\s(\d{3})\s/', $responseHeaders[0], $matches) === 1) {
+        $status = (int) $matches[1];
+    }
+    foreach ($responseHeaders as $responseHeader) {
+        if (preg_match('/^Set-Cookie:\s*([^=;\s]+)=([^;]*)/i', $responseHeader, $matches) !== 1) {
+            continue;
+        }
+        if ($matches[2] === '') {
+            unset($GLOBALS['HTTP_COOKIES'][$matches[1]]);
+        } else {
+            $GLOBALS['HTTP_COOKIES'][$matches[1]] = $matches[2];
+        }
+    }
+
+    return [
+        'status' => $status,
+        'raw' => $rawBody,
+        'serverOutput' => read_server_output(),
+    ];
+}
+
 function login_student(string $baseUrl, string $email, string $accessCode): array
 {
     $response = make_request($baseUrl, 'POST', '/api/student_login.php', [
@@ -526,6 +575,7 @@ try {
     $env['ADMIN_ACCESS_CODE_HASH'] = password_hash('AdminAccess123', PASSWORD_DEFAULT);
     $env['APP_SESSION_NAME'] = 'experiment_assignment_smoke_test';
     $env['APP_SESSION_SECURE'] = '0';
+    $env['PREFLIGHT_ENABLED'] = '1';
 
     $process = proc_open(
         $command,
@@ -545,6 +595,38 @@ try {
     $response = make_request($baseUrl, 'GET', '/api/bootstrap.php');
     assert_equals($response['status'], 200, 'bootstrap should return 200');
     assert_equals($response['body']['version'] ?? null, 3, 'bootstrap should expose V3');
+
+    $response = make_request($baseUrl, 'GET', '/scripts/deployment_preflight.php');
+    assert_equals($response['status'], 404, 'CLI preflight should reject direct web access');
+
+    $response = make_request($baseUrl, 'GET', '/preflight/index.php');
+    assert_equals($response['status'], 200, 'enabled browser preflight should show its login form');
+    assert_true(str_contains($response['raw'], 'Deployment preflight'), 'browser preflight should render its heading');
+    assert_true(
+        preg_match('/name="csrf_token" value="([a-f0-9]{64})"/', $response['raw'], $preflightCsrfMatch) === 1,
+        'browser preflight should render a CSRF token'
+    );
+    $preflightCsrf = $preflightCsrfMatch[1];
+
+    $response = make_form_request($baseUrl, '/preflight/index.php', [
+        'csrf_token' => $preflightCsrf,
+        'access_code' => 'WrongAdmin1',
+        'expect_empty' => '1',
+    ]);
+    assert_equals($response['status'], 401, 'browser preflight should reject the wrong administrator code');
+    assert_true(str_contains($response['raw'], 'Authentication failed.'), 'browser preflight failure should be generic');
+
+    $response = make_form_request($baseUrl, '/preflight/index.php', [
+        'csrf_token' => $preflightCsrf,
+        'access_code' => 'AdminAccess123',
+        'expect_empty' => '1',
+    ]);
+    assert_equals($response['status'], 200, 'browser preflight should run after administrator authentication');
+    assert_true(str_contains($response['raw'], 'Preflight result:'), 'browser preflight should render the shared result');
+    assert_true(
+        str_contains($response['raw'], 'Production database driver must be mysql; detected sqlite.'),
+        'browser preflight should run the same driver check as the CLI'
+    );
 
     $response = make_request($baseUrl, 'GET', '/api/student_overview.php');
     assert_equals($response['status'], 401, 'overview should require student authentication');

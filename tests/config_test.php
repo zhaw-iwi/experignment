@@ -66,6 +66,7 @@ try {
         'EXPERIMENT_DB_DSN=sqlite::memory:',
         'APP_SESSION_NAME=selected_test_environment',
         'APP_TIMEZONE=UTC',
+        'PREFLIGHT_ENABLED=true',
     ]));
     putenv('EXPERIMENT_ENV_FILE=' . $selectedPath);
     require __DIR__ . '/../config/config.php';
@@ -73,12 +74,23 @@ try {
     assert_config_value($GLOBALS['APP_CONFIG']['db']['dsn'] ?? null, 'sqlite::memory:', 'selected environment DSN');
     assert_config_value($GLOBALS['APP_CONFIG']['session']['name'] ?? null, 'selected_test_environment', 'selected environment session name');
     assert_config_value($GLOBALS['APP_CONFIG']['timezone'] ?? null, 'UTC', 'selected environment timezone');
+    assert_config_value($GLOBALS['APP_CONFIG']['operations']['preflight_enabled'] ?? null, true, 'selected environment preflight flag');
 } finally {
     @unlink($selectedPath);
-    foreach (['EXPERIMENT_ENV_FILE', 'EXPERIMENT_DB_DSN', 'APP_SESSION_NAME', 'APP_TIMEZONE'] as $name) {
+    foreach (['EXPERIMENT_ENV_FILE', 'EXPERIMENT_DB_DSN', 'APP_SESSION_NAME', 'APP_TIMEZONE', 'PREFLIGHT_ENABLED'] as $name) {
         putenv($name);
         unset($_ENV[$name], $_SERVER[$name]);
     }
+}
+
+foreach (['.env.example', '.env.test.example'] as $exampleName) {
+    $exampleContent = file_get_contents(__DIR__ . '/../' . $exampleName);
+    assert_config_value(is_string($exampleContent), true, 'read ' . $exampleName);
+    assert_config_value(
+        preg_match('/^PREFLIGHT_ENABLED=false$/m', (string) $exampleContent) === 1,
+        true,
+        $exampleName . ' disables browser preflight by default'
+    );
 }
 
 fwrite(STDOUT, 'config_test.php: ok' . PHP_EOL);

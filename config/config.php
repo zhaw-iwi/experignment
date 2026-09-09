@@ -67,5 +67,8 @@ $GLOBALS['APP_CONFIG'] = [
         'name' => environment_value('APP_SESSION_NAME', 'experiment_assignment_v3') ?? 'experiment_assignment_v3',
         'secure' => environment_bool('APP_SESSION_SECURE'),
     ],
+    'operations' => [
+        'preflight_enabled' => environment_bool('PREFLIGHT_ENABLED', false) ?? false,
+    ],
     'timezone' => $timezone,
 ];

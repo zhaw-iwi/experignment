@@ -28,6 +28,7 @@ Experiment Assignment App is a PHP/MySQL application for managing student experi
 - [x] 2026-09-09: V3 operational QA and cutover tooling
 - [x] 2026-09-09: Local database test environment template
 - [x] 2026-09-09: Local MySQL integration acceptance
+- [x] 2026-09-09: Protected browser deployment preflight
 - [ ] Clean production deployment and semester activation
 
 ## 2026-05-11: V2 Greenfield Multi-Experiment Implementation
@@ -1156,3 +1157,60 @@ Observed on 2026-09-09:
 ### Next Steps
 
 - Provision production access and execute `docs/PRODUCTION_CUTOVER.md` against the online host.
+
+## 2026-09-09: Protected Browser Deployment Preflight
+
+### Goal
+
+Make the complete deployment preflight available to shared-hosting deployments that provide phpMyAdmin and file access but no command-line console.
+
+### What Changed
+
+- Added `/preflight/` as a browser interface to the same implementation used by `scripts/deployment_preflight.php`.
+- Added `PREFLIGHT_ENABLED`, defaulting to `false` in application configuration and both tracked environment templates.
+- Required an explicit temporary enable flag before the browser route exists; disabled requests return `404` with no diagnostic disclosure.
+- Protected the form with the configured administrator access code, a 64-character session CSRF token, strict cookie settings, request-size limits, and per-session failed-attempt lockout.
+- Refused administrator-code submission over plain HTTP except from localhost.
+- Added no-store, no-index, no-referrer, content-type, frame-denial, and restrictive content-security-policy headers.
+- Kept the administrator code out of URLs, sessions, logs, preflight results, and database audit records.
+- Preserved direct-web rejection for `scripts/deployment_preflight.php`; only the authenticated browser controller can authorize its shared execution path.
+- Added a default-selected empty-database check that can be cleared for a later non-empty diagnostic run.
+- Added smoke coverage for direct CLI-script rejection, browser form/CSRF generation, incorrect administrator-code rejection, successful shared-check execution, and CLI/browser check parity.
+- Added configuration regressions ensuring both example environment files disable browser preflight by default.
+- Updated README, the production cutover guide, and canonical context documentation with the no-console workflow and immediate-disable requirement.
+
+### How To Run
+
+1. Import the clean schema and configure the private production `.env`.
+2. Set `PREFLIGHT_ENABLED=true` temporarily.
+3. Open `https://YOUR-APP/preflight/`, enter the administrator access code, and run the empty-database check.
+4. Require zero errors, then set `PREFLIGHT_ENABLED=false` immediately.
+5. Reload `/preflight/` and confirm it returns `404`.
+
+### How To Test
+
+- PHP syntax checks for the browser controller and CLI preflight.
+- `php tests/config_test.php`
+- `php tests/text_quality_test.php`
+- `php tests/api_smoke_test.php`
+- Full repository syntax and automated suite.
+
+Observed on 2026-09-09:
+
+- All PHP and JavaScript syntax checks passed.
+- All six automated test scripts passed.
+- The smoke test passed direct-web CLI rejection, browser form and CSRF creation, wrong-code rejection, and authenticated shared-check execution.
+- The browser endpoint ran against the clean local MySQL 8.0.34 database with 11 passes, one expected local-root warning, and zero errors.
+- The real MySQL browser response included the no-store and no-index protections.
+
+### Known Issues And Decisions
+
+- The enable flag deliberately lives in the private host configuration, not in the browser UI, so a web request cannot activate the diagnostic route.
+- Failure limiting is session-scoped because the endpoint may need to diagnose a missing authentication-throttle table. The generated 20-character administrator code remains the primary brute-force defense.
+- Browser execution always uses the deployed application's database credentials and never displays them.
+- The page performs a rolled-back CRUD permission probe. It does not create, drop, reset, or migrate tables.
+- Leaving the route enabled is unnecessary exposure even though it remains authenticated; disabling it after each diagnostic run is mandatory.
+
+### Next Steps
+
+- Deploy, run the browser preflight, disable it, and continue the semester activation checklist.

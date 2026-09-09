@@ -47,13 +47,24 @@ Fallback when a new database cannot be provisioned:
 
 ## 4. Run The Deployment Preflight
 
-From the deployed application directory, with the production `.env` active:
+If the host provides a console, run from the deployed application directory with the production `.env` active:
 
 ```bash
 php scripts/deployment_preflight.php --expect-empty
 ```
 
-Expected result: zero errors. A root-account warning must be resolved by switching to a dedicated runtime account. The command checks:
+If the host does not provide a console:
+
+1. Temporarily set `PREFLIGHT_ENABLED=true` in the private production `.env`.
+2. Open `https://YOUR-APP/preflight/` in a browser.
+3. Enter the administrator access code. It is submitted only by `POST` and is not included in the URL or preflight output.
+4. Keep **Require all semester and runtime tables to be empty** selected for the initial clean deployment.
+5. Run the check and require zero errors.
+6. Immediately restore `PREFLIGHT_ENABLED=false` and confirm `/preflight/` returns `404`.
+
+The browser endpoint is disabled by default, refuses administrator-code submission over non-HTTPS connections except on localhost, uses CSRF protection and secure session cookies, limits repeated failures per session, sends no-cache/no-index headers, and invokes the same check implementation as the command-line tool.
+
+Expected result: zero errors. A root-account warning must be resolved by switching to a dedicated runtime account. Both interfaces check:
 
 - a valid administrator password hash, positive session timeouts, secure cookies, and application timezone;
 - MySQL/MariaDB connectivity, schema version 3, all 20 required tables and key columns, and InnoDB storage;

@@ -2,21 +2,37 @@
 
 declare(strict_types=1);
 
-if (PHP_SAPI !== 'cli') {
+function deployment_preflight_write(string $message, bool $error = false): void
+{
+    if (PHP_SAPI === 'cli' && $error && defined('STDERR')) {
+        fwrite(STDERR, $message);
+        return;
+    }
+    if (PHP_SAPI === 'cli' && defined('STDOUT')) {
+        fwrite(STDOUT, $message);
+        return;
+    }
+
+    echo $message;
+}
+
+$authorizedBrowserRun = defined('EXPERIMENT_AUTHORIZED_BROWSER_PREFLIGHT')
+    && EXPERIMENT_AUTHORIZED_BROWSER_PREFLIGHT === true;
+if (PHP_SAPI !== 'cli' && !$authorizedBrowserRun) {
     http_response_code(404);
     exit;
 }
 
 $arguments = array_slice($argv, 1);
 if (in_array('--help', $arguments, true)) {
-    fwrite(STDOUT, "Usage: php scripts/deployment_preflight.php [--expect-empty]\n");
-    fwrite(STDOUT, "Checks production configuration, the V3 MySQL/MariaDB schema, runtime database permissions, and optionally an empty install.\n");
+    deployment_preflight_write("Usage: php scripts/deployment_preflight.php [--expect-empty]\n");
+    deployment_preflight_write("Checks production configuration, the V3 MySQL/MariaDB schema, runtime database permissions, and optionally an empty install.\n");
     exit(0);
 }
 
 $unknownArguments = array_values(array_diff($arguments, ['--expect-empty']));
 if ($unknownArguments !== []) {
-    fwrite(STDERR, '[ERROR] Unknown argument: ' . $unknownArguments[0] . PHP_EOL);
+    deployment_preflight_write('[ERROR] Unknown argument: ' . $unknownArguments[0] . PHP_EOL, true);
     exit(2);
 }
 
@@ -36,9 +52,9 @@ $error = static function (string $message) use (&$errors): void {
 };
 
 try {
-    require __DIR__ . '/../config/config.php';
+    require_once __DIR__ . '/../config/config.php';
 } catch (Throwable $exception) {
-    fwrite(STDERR, '[ERROR] Configuration could not be loaded: ' . $exception->getMessage() . PHP_EOL);
+    deployment_preflight_write('[ERROR] Configuration could not be loaded: ' . $exception->getMessage() . PHP_EOL, true);
     exit(1);
 }
 
@@ -234,16 +250,16 @@ if ($pdo instanceof PDO) {
 }
 
 foreach ($passes as $message) {
-    fwrite(STDOUT, '[OK] ' . $message . PHP_EOL);
+    deployment_preflight_write('[OK] ' . $message . PHP_EOL);
 }
 foreach ($warnings as $message) {
-    fwrite(STDOUT, '[WARN] ' . $message . PHP_EOL);
+    deployment_preflight_write('[WARN] ' . $message . PHP_EOL);
 }
 foreach ($errors as $message) {
-    fwrite(STDERR, '[ERROR] ' . $message . PHP_EOL);
+    deployment_preflight_write('[ERROR] ' . $message . PHP_EOL, true);
 }
 
-fwrite(STDOUT, sprintf(
+deployment_preflight_write(sprintf(
     'Preflight result: %d passed, %d warning(s), %d error(s).' . PHP_EOL,
     count($passes),
     count($warnings),

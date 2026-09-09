@@ -12,6 +12,7 @@ PHP/MySQL web app for assigning experiment access information to ZHAW students a
 - `.env.test.example`: tracked template for an ignored local database test configuration
 - `scripts/generate_admin_access_code.php`: one-time administrator code/hash generator
 - `scripts/deployment_preflight.php`: production configuration and clean-database verifier
+- `preflight/index.php`: temporarily enabled, administrator-protected browser preflight
 - `docs/PRODUCTION_CUTOVER.md`: phpMyAdmin deployment and semester activation checklist
 - `database/schema.sql`: V3 schema
 - `database/seed.sql`: intentionally empty production seed
@@ -63,6 +64,8 @@ php scripts/deployment_preflight.php --expect-empty
 ```
 
 The preflight verifies production authentication/session settings, database connectivity, schema version and key columns, InnoDB/UTF-8 configuration, an empty semester state, and runtime database permissions. Its permission probe is fully rolled back.
+
+When the host has no console, temporarily set `PREFLIGHT_ENABLED=true` in the production `.env`, open `https://YOUR-APP/preflight/`, enter the administrator access code, and keep the empty-database check selected for a fresh deployment. After receiving zero errors, immediately restore `PREFLIGHT_ENABLED=false` and confirm the URL returns `404`. The page refuses non-HTTPS credential submission except from localhost and uses the same checks as the CLI command.
 
 For local database QA, copy `.env.test.example` to the ignored `.env.test`, fill in credentials for a dedicated disposable database, and explicitly select it in PowerShell:
 
@@ -171,3 +174,4 @@ php tests/api_smoke_test.php
 `api_smoke_test.php` uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable.
 When SQLite support is available, it covers student and administrator authentication, session-bound identity, CSRF enforcement, grouped roster upserts, course guards, one-time generated-code CSV delivery, hash-only persistence, manual code rotation, login-code session revocation, course-targeted experiment visibility, opening schedules, participant maxima, ready-to-open validation, private notes, explicit undated slots, the student claim/retrieval flow, slot capacity enforcement, management setup actions, allowlist removal guards, participant selection and clearing, condition assignment and clearing, access-pool import, staff-entered access values, partial and zero capped rewards, confirmation, bulk grading operations, appointment retrieval, reset, randomization, audit events, and the management approval report endpoint.
 The report coverage includes the distinction between opened access and confirmed `Angerechnet` approval as well as credited totals and course maxima.
+The smoke test also verifies browser-preflight enablement, CSRF and administrator-code protection, direct-web rejection of the CLI script, and execution of the shared check implementation.

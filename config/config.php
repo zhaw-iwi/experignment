@@ -4,7 +4,14 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/env.php';
 
-load_environment_file(dirname(__DIR__) . '/.env');
+$projectRoot = dirname(__DIR__);
+$environmentFile = trim(environment_value('EXPERIMENT_ENV_FILE', '') ?? '');
+if ($environmentFile === '') {
+    $environmentFile = $projectRoot . '/.env';
+} elseif (preg_match('~^(?:[A-Za-z]:[\\\\/]|[\\\\/]{1,2})~', $environmentFile) !== 1) {
+    $environmentFile = $projectRoot . '/' . ltrim($environmentFile, '/\\');
+}
+load_environment_file($environmentFile);
 
 $timezone = environment_value('APP_TIMEZONE', 'Europe/Zurich') ?? 'Europe/Zurich';
 if (!in_array($timezone, timezone_identifiers_list(), true)) {

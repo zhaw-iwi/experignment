@@ -55,4 +55,30 @@ try {
     }
 }
 
+$selectedPath = tempnam(sys_get_temp_dir(), 'experiment_selected_env_');
+if ($selectedPath === false) {
+    fwrite(STDERR, 'FAILED: could not create selected environment file' . PHP_EOL);
+    exit(1);
+}
+
+try {
+    file_put_contents($selectedPath, implode(PHP_EOL, [
+        'EXPERIMENT_DB_DSN=sqlite::memory:',
+        'APP_SESSION_NAME=selected_test_environment',
+        'APP_TIMEZONE=UTC',
+    ]));
+    putenv('EXPERIMENT_ENV_FILE=' . $selectedPath);
+    require __DIR__ . '/../config/config.php';
+
+    assert_config_value($GLOBALS['APP_CONFIG']['db']['dsn'] ?? null, 'sqlite::memory:', 'selected environment DSN');
+    assert_config_value($GLOBALS['APP_CONFIG']['session']['name'] ?? null, 'selected_test_environment', 'selected environment session name');
+    assert_config_value($GLOBALS['APP_CONFIG']['timezone'] ?? null, 'UTC', 'selected environment timezone');
+} finally {
+    @unlink($selectedPath);
+    foreach (['EXPERIMENT_ENV_FILE', 'EXPERIMENT_DB_DSN', 'APP_SESSION_NAME', 'APP_TIMEZONE'] as $name) {
+        putenv($name);
+        unset($_ENV[$name], $_SERVER[$name]);
+    }
+}
+
 fwrite(STDOUT, 'config_test.php: ok' . PHP_EOL);

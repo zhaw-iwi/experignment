@@ -202,6 +202,7 @@ The student UI should:
 - `database/drop_tables.sql`: drops all application tables in dependency order for full teardown/rebuild cycles.
 - `database/live_database.sql`: historical live dump from the V1 app. Treat it as migration context only; do not edit it unless the user explicitly asks for migration work.
 - `.env.example`: deployment configuration template; the real `.env` is ignored.
+- `.env.test.example`: local test-database template; copy it to ignored `.env.test` and select it with `EXPERIMENT_ENV_FILE=.env.test`.
 - `config/config.php`: environment-backed deployment configuration plus `EXPERIMENT_DB_DSN` test override.
 - `scripts/generate_admin_access_code.php`: one-time administrator access-code and hash generator.
 - `scripts/deployment_preflight.php`: production configuration, schema, empty-state, and rolled-back runtime-permission verifier.

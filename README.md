@@ -9,6 +9,7 @@ PHP/MySQL web app for assigning experiment access information to ZHAW students a
 - `manage/`: staff UI
 - `api/`: student and staff JSON endpoints
 - `config/config.php`: deployment database configuration
+- `.env.test.example`: tracked template for an ignored local database test configuration
 - `scripts/generate_admin_access_code.php`: one-time administrator code/hash generator
 - `scripts/deployment_preflight.php`: production configuration and clean-database verifier
 - `docs/PRODUCTION_CUTOVER.md`: phpMyAdmin deployment and semester activation checklist
@@ -62,6 +63,15 @@ php scripts/deployment_preflight.php --expect-empty
 ```
 
 The preflight verifies production authentication/session settings, database connectivity, schema version and key columns, InnoDB/UTF-8 configuration, an empty semester state, and runtime database permissions. Its permission probe is fully rolled back.
+
+For local database QA, copy `.env.test.example` to the ignored `.env.test`, fill in credentials for a dedicated disposable database, and explicitly select it in PowerShell:
+
+```powershell
+Copy-Item .env.test.example .env.test
+$env:EXPERIMENT_ENV_FILE = '.env.test'
+```
+
+Set `EXPERIMENT_TEST_DATABASE_RESET_ALLOWED=true` only if that database may be dropped and rebuilt during the remaining integration checks. The application continues to load `.env` by default; `.env.test` is used only when `EXPERIMENT_ENV_FILE` explicitly selects it.
 
 The V3 runtime uses course groups, student login-code metadata, authentication throttling, experiment schedules/capacities/rewards, group eligibility, explicitly undated slots, reward snapshots, and audit events.
 

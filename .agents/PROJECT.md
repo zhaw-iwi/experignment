@@ -26,6 +26,7 @@ Experiment Assignment App is a PHP/MySQL application for managing student experi
 - [x] 2026-09-09: V3 course groups, roster import, and login-code lifecycle
 - [x] 2026-09-09: V3 experiment audiences, capacity, rewards, readiness, and completeness
 - [x] 2026-09-09: V3 operational QA and cutover tooling
+- [x] 2026-09-09: Local database test environment template
 - [ ] Clean production deployment and semester activation
 
 ## 2026-05-11: V2 Greenfield Multi-Experiment Implementation
@@ -1058,3 +1059,42 @@ Observed on 2026-09-09:
 
 - Obtain production database/phpMyAdmin and file-deployment access or a documented deployment command.
 - Rotate the historical database credential, provision the dedicated V3 database account, configure the private `.env`, deploy this revision, and follow the production cutover checklist through sign-off.
+
+## 2026-09-09: Local Database Test Environment Template
+
+### Goal
+
+Let the repository owner provide local database credentials for the remaining integration checks without editing a tracked production template or risking credential commits.
+
+### What Changed
+
+- Added tracked `.env.test.example` with local database, administrator-session, timezone, and disposable-database confirmation placeholders.
+- Kept the real `.env.test` covered by the existing `.env.*` ignore rule while explicitly allowing only its example template into Git.
+- Added `EXPERIMENT_ENV_FILE` support so `.env.test` can be selected explicitly; normal application startup continues to load `.env` by default.
+- Added configuration-test coverage for selecting an alternate absolute environment file and loading its DSN, session name, and timezone.
+- Documented the safe copy/select workflow and the `EXPERIMENT_TEST_DATABASE_RESET_ALLOWED` guard for destructive local QA.
+
+### How To Run
+
+1. Run `Copy-Item .env.test.example .env.test`.
+2. Put only local, dedicated test-database credentials and a local administrator hash in `.env.test`.
+3. Set `$env:EXPERIMENT_ENV_FILE = '.env.test'` in the PowerShell session used for local testing.
+4. Set `EXPERIMENT_TEST_DATABASE_RESET_ALLOWED=true` only when the named database is disposable and may be dropped/rebuilt.
+
+### How To Test
+
+- `php -l config/config.php`
+- `php tests/config_test.php`
+- Full repository syntax and automated test suite.
+
+### Known Issues And Decisions
+
+- `EXPERIMENT_ENV_FILE` must be selected outside the target file because the application must know which file to load before it can read that file.
+- Relative selected paths resolve from the repository root; absolute Windows, UNC, and Unix paths are accepted from the trusted process environment.
+- `.env.test.example` must never contain actual credentials. The ignored `.env.test` is the only local credential file for this workflow.
+- The reset-allowed flag is an explicit operator signal for the remaining QA commands; the runtime application itself does not perform schema resets.
+
+### Next Steps
+
+- Wait for the repository owner to create and populate `.env.test`.
+- Verify the reset-allowed flag and database target without printing credentials, then run the remaining local database integration checks.

@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+!.env.test.example
 
 # Live database exports and temporary files contain student or access data.
 /database/e93ud_*.sql

@@ -9,6 +9,7 @@ PHP/MySQL web app for assigning experiment access information to ZHAW students a
 - `manage/`: staff UI
 - `api/`: student and staff JSON endpoints
 - `config/config.php`: deployment database configuration
+- `scripts/generate_admin_access_code.php`: one-time administrator code/hash generator
 - `database/schema.sql`: V3 schema
 - `database/seed.sql`: intentionally empty production seed
 - `database/seed_examples.sql`: optional representative demo experiments and access data
@@ -42,23 +43,35 @@ Copy `.env.example` to `.env` and configure the database there. Process environm
 
 Required MySQL settings are `EXPERIMENT_DB_HOST`, `EXPERIMENT_DB_NAME`, `EXPERIMENT_DB_USER`, and `EXPERIMENT_DB_PASSWORD`. `EXPERIMENT_DB_PORT` defaults to `3306`, and `EXPERIMENT_DB_CHARSET` defaults to `utf8mb4`. `EXPERIMENT_DB_DSN` remains available as an optional complete override for tests, especially the SQLite smoke test.
 
-The V3 schema foundation includes course groups, student login-code metadata, authentication throttling, experiment schedules/capacities/rewards, group eligibility, undated slots, and audit events. These capabilities are activated by the subsequent application milestones; the current student flow remains email-only after this foundation milestone.
+Generate a new administrator access code and its password hash with:
+
+```bash
+php scripts/generate_admin_access_code.php
+```
+
+Store the displayed `ADMIN_ACCESS_CODE_HASH` line in the private `.env` file and deliver the plaintext code through an appropriate separate channel. The helper displays the plaintext only once. Session names, idle timeouts, and the secure-cookie setting are also configurable through `.env.example`; production must use HTTPS with `APP_SESSION_SECURE=true`.
+
+The V3 schema foundation includes course groups, student login-code metadata, authentication throttling, experiment schedules/capacities/rewards, group eligibility, undated slots, and audit events. Student and administrator authentication now use these foundations; course-group and experiment-operation behavior is activated by subsequent milestones.
 
 ## Student Flow
 
-1. Student enters a `@students.zhaw.ch` email address.
+1. Student enters a `@students.zhaw.ch` email address and their individual access code.
 2. The app loads all experiments visible to that student.
 3. Closed experiments stay visible but cannot be opened.
 4. Open experiments can be claimed once.
-5. Existing claims are retrieved by email and show the same access information again.
+5. Existing claims are retrieved through the authenticated session and show the same access information again.
 6. Slot-based experiments require one slot choice with capacity checks.
 7. Staff-entered appointment text appears in the access information when available.
 8. `Angerechnet` is shown after staff confirms the participation.
-9. The current email session is shown in the top navbar and can be ended with `Beenden`.
+9. The current authenticated email is shown in the top navbar and the server-side session can be ended with `Beenden`.
+
+Student codes are never stored in browser storage. The server stores password hashes only, throttles repeated login failures, and invalidates an active student session when that student's code version changes.
 
 ## Staff Flow
 
 The staff UI is at `manage/index.html`.
+
+It requires the administrator access code configured as `ADMIN_ACCESS_CODE_HASH`. Management data endpoints require the administrator session, and write endpoints additionally require a session-bound CSRF token.
 
 It supports:
 
@@ -108,8 +121,6 @@ Access fields that already back assigned runtime values cannot be deleted or str
 
 For experiments with configured condition rows, access-pool imports are condition-scoped. Choose the target condition in the pool modal; the CSV for that condition includes both experiment-wide pool fields and fields specific to that condition. The experiment-wide pool option is used while no conditions exist.
 
-Staff authentication is intentionally not implemented yet; the page relies on a hidden URL.
-
 ## Tests
 
 ```bash
@@ -123,5 +134,5 @@ php tests/api_smoke_test.php
 
 `js_regression_test.php` catches focused management-client regressions that are not covered by JavaScript syntax checking alone.
 `api_smoke_test.php` uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable.
-When SQLite support is available, it covers the student claim/retrieval flow, slot capacity enforcement, management setup actions, allowlist removal guards, participant selection and clearing, condition assignment and clearing, access-pool import, staff-entered access values, confirmation, bulk grading operations, appointment retrieval, reset, randomization, and the management approval report endpoint.
+When SQLite support is available, it covers student and administrator authentication, session-bound identity, CSRF enforcement, login-code session revocation, the student claim/retrieval flow, slot capacity enforcement, management setup actions, allowlist removal guards, participant selection and clearing, condition assignment and clearing, access-pool import, staff-entered access values, confirmation, bulk grading operations, appointment retrieval, reset, randomization, and the management approval report endpoint.
 The report coverage includes the distinction between opened access and confirmed `Angerechnet` approval.

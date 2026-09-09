@@ -24,6 +24,7 @@ $names = [
     'EXPERIMENT_TEST_SINGLE_QUOTED',
     'EXPERIMENT_TEST_EMPTY',
     'EXPERIMENT_TEST_EXISTING',
+    'EXPERIMENT_TEST_BOOL',
 ];
 
 try {
@@ -35,6 +36,7 @@ try {
         "EXPERIMENT_TEST_SINGLE_QUOTED='literal # value'",
         'EXPERIMENT_TEST_EMPTY=',
         'EXPERIMENT_TEST_EXISTING=file-value',
+        'EXPERIMENT_TEST_BOOL=yes',
     ]));
 
     load_environment_file($path);
@@ -44,6 +46,7 @@ try {
     assert_config_value(environment_value('EXPERIMENT_TEST_SINGLE_QUOTED'), 'literal # value', 'single-quoted value');
     assert_config_value(environment_value('EXPERIMENT_TEST_EMPTY'), '', 'empty value');
     assert_config_value(environment_value('EXPERIMENT_TEST_EXISTING'), 'process-value', 'process environment precedence');
+    assert_config_value(environment_bool('EXPERIMENT_TEST_BOOL'), true, 'boolean value');
 } finally {
     @unlink($path);
     foreach ($names as $name) {

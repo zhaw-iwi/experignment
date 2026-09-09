@@ -18,11 +18,32 @@ function assert_equals(mixed $actual, mixed $expected, string $message): void
     }
 }
 
-function make_request(string $baseUrl, string $method, string $path, ?array $jsonBody = null): array
+function make_request(
+    string $baseUrl,
+    string $method,
+    string $path,
+    ?array $jsonBody = null,
+    bool $includeAuthHeaders = true
+): array
 {
     $headers = ['Accept: application/json'];
+    $cookies = $GLOBALS['HTTP_COOKIES'] ?? [];
+    if (is_array($cookies) && $cookies !== []) {
+        $cookieValues = [];
+        foreach ($cookies as $name => $value) {
+            $cookieValues[] = $name . '=' . $value;
+        }
+        $headers[] = 'Cookie: ' . implode('; ', $cookieValues);
+    }
     if ($jsonBody !== null) {
         $headers[] = 'Content-Type: application/json';
+    }
+    if ($includeAuthHeaders && strtoupper($method) !== 'GET') {
+        $tokenKey = str_starts_with($path, '/api/manage/') ? 'ADMIN_CSRF_TOKEN' : 'STUDENT_CSRF_TOKEN';
+        $csrfToken = $GLOBALS[$tokenKey] ?? '';
+        if (is_string($csrfToken) && $csrfToken !== '') {
+            $headers[] = 'X-CSRF-Token: ' . $csrfToken;
+        }
     }
 
     $options = [
@@ -45,6 +66,16 @@ function make_request(string $baseUrl, string $method, string $path, ?array $jso
     if (isset($responseHeaders[0]) && preg_match('/\s(\d{3})\s/', $responseHeaders[0], $matches) === 1) {
         $status = (int) $matches[1];
     }
+    foreach ($responseHeaders as $responseHeader) {
+        if (preg_match('/^Set-Cookie:\s*([^=;\s]+)=([^;]*)/i', $responseHeader, $matches) !== 1) {
+            continue;
+        }
+        if ($matches[2] === '') {
+            unset($GLOBALS['HTTP_COOKIES'][$matches[1]]);
+        } else {
+            $GLOBALS['HTTP_COOKIES'][$matches[1]] = $matches[2];
+        }
+    }
 
     $decoded = json_decode($rawBody, true);
 
@@ -54,6 +85,47 @@ function make_request(string $baseUrl, string $method, string $path, ?array $jso
         'raw' => $rawBody,
         'serverOutput' => read_server_output(),
     ];
+}
+
+function login_student(string $baseUrl, string $email, string $accessCode): array
+{
+    $response = make_request($baseUrl, 'POST', '/api/student_login.php', [
+        'email' => $email,
+        'accessCode' => $accessCode,
+    ]);
+    assert_equals($response['status'], 200, 'student login should return 200');
+    $GLOBALS['STUDENT_CSRF_TOKEN'] = (string) ($response['body']['csrfToken'] ?? '');
+    assert_true($GLOBALS['STUDENT_CSRF_TOKEN'] !== '', 'student login should return a CSRF token');
+
+    return $response;
+}
+
+function login_admin(string $baseUrl, string $accessCode): array
+{
+    $response = make_request($baseUrl, 'POST', '/api/manage/login.php', [
+        'accessCode' => $accessCode,
+    ]);
+    assert_equals($response['status'], 200, 'admin login should return 200');
+    $GLOBALS['ADMIN_CSRF_TOKEN'] = (string) ($response['body']['csrfToken'] ?? '');
+    assert_true($GLOBALS['ADMIN_CSRF_TOKEN'] !== '', 'admin login should return a CSRF token');
+
+    return $response;
+}
+
+function set_student_login_code(string $dbPath, string $email, string $accessCode): void
+{
+    $pdo = new PDO('sqlite:' . $dbPath, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    $statement = $pdo->prepare(
+        'UPDATE allowed_students
+         SET login_code_hash = :login_code_hash,
+             login_code_version = login_code_version + 1,
+             login_code_set_at = CURRENT_TIMESTAMP
+         WHERE student_email = :student_email'
+    );
+    $statement->execute([
+        'login_code_hash' => password_hash($accessCode, PASSWORD_DEFAULT),
+        'student_email' => $email,
+    ]);
 }
 
 function read_server_output(): string
@@ -166,7 +238,20 @@ function setup_sqlite_database(string $dbPath): void
     $pdo->exec('CREATE TABLE allowed_students (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         student_email TEXT NOT NULL UNIQUE,
+        login_code_hash TEXT NULL,
+        login_code_version INTEGER NOT NULL DEFAULT 0,
+        login_code_set_at TEXT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )');
+    $pdo->exec('CREATE TABLE authentication_throttles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        subject_type TEXT NOT NULL,
+        subject_hash TEXT NOT NULL,
+        failed_attempts INTEGER NOT NULL DEFAULT 0,
+        window_started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        locked_until TEXT NULL,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(subject_type, subject_hash)
     )');
     $pdo->exec('CREATE TABLE experiments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -292,8 +377,17 @@ function setup_sqlite_database(string $dbPath): void
         assigned_count INTEGER NOT NULL
     )');
 
-    foreach (['alice@students.zhaw.ch', 'bob@students.zhaw.ch', 'charlie@students.zhaw.ch'] as $email) {
-        $pdo->prepare('INSERT INTO allowed_students (student_email) VALUES (?)')->execute([$email]);
+    $studentCodes = [
+        'alice@students.zhaw.ch' => 'alice1',
+        'bob@students.zhaw.ch' => 'bob22',
+        'charlie@students.zhaw.ch' => 'charlie3',
+    ];
+    foreach ($studentCodes as $email => $accessCode) {
+        $pdo->prepare(
+            'INSERT INTO allowed_students
+                (student_email, login_code_hash, login_code_version, login_code_set_at)
+             VALUES (?, ?, 1, CURRENT_TIMESTAMP)'
+        )->execute([$email, password_hash($accessCode, PASSWORD_DEFAULT)]);
     }
 
     $pdo->exec("INSERT INTO experiments
@@ -360,6 +454,9 @@ if ($serverStdoutPath === false || $serverStderrPath === false) {
 }
 $GLOBALS['SERVER_STDOUT_PATH'] = $serverStdoutPath;
 $GLOBALS['SERVER_STDERR_PATH'] = $serverStderrPath;
+$GLOBALS['HTTP_COOKIES'] = [];
+$GLOBALS['ADMIN_CSRF_TOKEN'] = '';
+$GLOBALS['STUDENT_CSRF_TOKEN'] = '';
 
 try {
     setup_sqlite_database($dbPath);
@@ -376,6 +473,9 @@ try {
     $env['EXPERIMENT_DB_DSN'] = 'sqlite:' . $dbPath;
     $env['EXPERIMENT_DB_USER'] = '';
     $env['EXPERIMENT_DB_PASSWORD'] = '';
+    $env['ADMIN_ACCESS_CODE_HASH'] = password_hash('AdminAccess123', PASSWORD_DEFAULT);
+    $env['APP_SESSION_NAME'] = 'experiment_assignment_smoke_test';
+    $env['APP_SESSION_SECURE'] = '0';
 
     $process = proc_open(
         $command,
@@ -396,9 +496,49 @@ try {
     assert_equals($response['status'], 200, 'bootstrap should return 200');
     assert_equals($response['body']['version'] ?? null, 3, 'bootstrap should expose V3');
 
-    $response = make_request($baseUrl, 'GET', '/api/student_overview.php?email=alice%40students.zhaw.ch');
+    $response = make_request($baseUrl, 'GET', '/api/student_overview.php');
+    assert_equals($response['status'], 401, 'overview should require student authentication');
+
+    $response = make_request($baseUrl, 'POST', '/api/student_login.php', [
+        'email' => 'alice@students.zhaw.ch',
+        'accessCode' => 'wrong1',
+    ]);
+    assert_equals($response['status'], 401, 'incorrect student code should be rejected');
+    assert_equals($response['body']['error_code'] ?? null, 'AUTHENTICATION_FAILED', 'student login failure should be generic');
+
+    login_student($baseUrl, 'alice@students.zhaw.ch', 'alice1');
+    $response = make_request($baseUrl, 'GET', '/api/student_overview.php?email=bob%40students.zhaw.ch');
     assert_equals($response['status'], 200, 'overview should return 200');
+    assert_equals($response['body']['email'] ?? null, 'alice@students.zhaw.ch', 'overview identity should come from the session');
     assert_equals(count($response['body']['experiments'] ?? []), 2, 'overview should include two experiments');
+
+    $response = make_request($baseUrl, 'GET', '/api/manage/dashboard.php');
+    assert_equals($response['status'], 401, 'dashboard should require admin authentication');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/login.php', ['accessCode' => 'wrong1']);
+    assert_equals($response['status'], 401, 'incorrect admin code should be rejected');
+    assert_equals($response['body']['error_code'] ?? null, 'AUTHENTICATION_FAILED', 'admin login failure should be generic');
+    login_admin($baseUrl, 'AdminAccess123');
+
+    $response = make_request(
+        $baseUrl,
+        'POST',
+        '/api/manage/actions.php',
+        ['action' => 'unknown'],
+        false
+    );
+    assert_equals($response['status'], 403, 'management writes should require a CSRF token');
+    assert_equals($response['body']['error_code'] ?? null, 'CSRF_TOKEN_INVALID', 'missing admin CSRF token should be explicit');
+
+    $response = make_request(
+        $baseUrl,
+        'POST',
+        '/api/claim.php',
+        ['experimentId' => 1],
+        false
+    );
+    assert_equals($response['status'], 403, 'student writes should require a CSRF token');
+    assert_equals($response['body']['error_code'] ?? null, 'CSRF_TOKEN_INVALID', 'missing student CSRF token should be explicit');
 
     $response = make_request($baseUrl, 'POST', '/api/claim.php', [
         'email' => 'alice@students.zhaw.ch',
@@ -439,6 +579,7 @@ try {
     assert_equals($aliceReportRow['email'] ?? null, 'alice@students.zhaw.ch', 'report row should retain source email');
     assert_equals(report_value_for_experiment($response['body'] ?? [], $aliceReportRow, 1), 0, 'unconfirmed claim should not count as approved');
 
+    login_student($baseUrl, 'bob@students.zhaw.ch', 'bob22');
     $response = make_request($baseUrl, 'POST', '/api/claim.php', [
         'email' => 'bob@students.zhaw.ch',
         'experimentId' => 2,
@@ -452,6 +593,7 @@ try {
     ]);
     assert_equals($response['status'], 200, 'slot choice should return 200');
 
+    login_student($baseUrl, 'charlie@students.zhaw.ch', 'charlie3');
     $response = make_request($baseUrl, 'POST', '/api/claim.php', [
         'email' => 'charlie@students.zhaw.ch',
         'experimentId' => 2,
@@ -834,6 +976,8 @@ try {
     ]);
     assert_equals($response['status'], 200, 'management should assign student eligibility');
 
+    set_student_login_code($dbPath, 'dana@students.zhaw.ch', 'dana44');
+    login_student($baseUrl, 'dana@students.zhaw.ch', 'dana44');
     $response = make_request($baseUrl, 'POST', '/api/claim.php', [
         'email' => 'dana@students.zhaw.ch',
         'experimentId' => $managedExperimentId,
@@ -937,6 +1081,10 @@ try {
     assert_equals($managedExperiment['canViewAccess'] ?? null, false, 'confirmed participations should not expose access button');
     assert_equals(count($managedExperiment['accessItems'] ?? []), 0, 'confirmed participations should not expose access data');
     assert_equals($managedExperiment['appointmentText'] ?? null, '09:30', 'student overview should show appointment text');
+
+    set_student_login_code($dbPath, 'dana@students.zhaw.ch', 'dana55');
+    $response = make_request($baseUrl, 'GET', '/api/student_overview.php');
+    assert_equals($response['status'], 401, 'changing a student access code should invalidate existing sessions');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'delete_condition',

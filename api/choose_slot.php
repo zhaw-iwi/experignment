@@ -7,11 +7,13 @@ require_once __DIR__ . '/_bootstrap.php';
 require_method('POST');
 
 $payload = read_json_body();
-$email = normalize_student_email((string) ($payload['email'] ?? ''));
 $experimentId = required_int($payload['experimentId'] ?? null, 'INVALID_EXPERIMENT', 'Bitte wählen Sie ein Experiment aus.');
 $slotId = required_int($payload['slotId'] ?? null, 'INVALID_SLOT', 'Bitte wählen Sie einen Zeitslot aus.');
 
 $pdo = db();
+$auth = require_student_authentication($pdo);
+require_csrf_token($auth);
+$email = $auth['email'];
 require_allowed_student($pdo, $email);
 
 $experiment = fetch_experiment($pdo, $experimentId);

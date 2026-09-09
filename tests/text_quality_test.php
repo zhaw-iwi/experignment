@@ -20,12 +20,19 @@ $codeFiles = [
     __DIR__ . '/../api/claim.php',
     __DIR__ . '/../api/choose_slot.php',
     __DIR__ . '/../api/_bootstrap.php',
+    __DIR__ . '/../api/_auth.php',
+    __DIR__ . '/../api/student_login.php',
+    __DIR__ . '/../api/student_session.php',
+    __DIR__ . '/../api/student_logout.php',
     __DIR__ . '/../api/manage/actions.php',
     __DIR__ . '/../api/manage/dashboard.php',
     __DIR__ . '/../api/manage/report.php',
     __DIR__ . '/../api/manage/search_students.php',
     __DIR__ . '/../api/manage/reset_student.php',
     __DIR__ . '/../api/manage/add_allowed_student.php',
+    __DIR__ . '/../api/manage/login.php',
+    __DIR__ . '/../api/manage/session.php',
+    __DIR__ . '/../api/manage/logout.php',
 ];
 
 $transliterationPattern = '/\b(?:fuer|gueltig|ungueltig|gewaehlt|waehlen|zurueck[\p{L}]*|loesch[\p{L}]*|hinzufueg[\p{L}]*|verfueg[\p{L}]*|oeffn[\p{L}]*|pruef[\p{L}]*|schliess[\p{L}]*|bestaetig[\p{L}]*|ausfuehr[\p{L}]*)\b/iu';

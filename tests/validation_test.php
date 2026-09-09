@@ -21,6 +21,12 @@ $checks = [
     ['label' => 'nullable int accepts empty', 'actual' => nullable_int(''), 'expected' => null],
     ['label' => 'nullable int accepts number', 'actual' => nullable_int('42'), 'expected' => 42],
     ['label' => 'condition payload keeps null', 'actual' => condition_payload(null), 'expected' => null],
+    ['label' => 'access code accepts five mixed alphanumeric characters', 'actual' => access_code_meets_requirements('ab12c'), 'expected' => true],
+    ['label' => 'access code accepts uppercase characters', 'actual' => access_code_meets_requirements('Abc123'), 'expected' => true],
+    ['label' => 'access code rejects letters only', 'actual' => access_code_meets_requirements('abcde'), 'expected' => false],
+    ['label' => 'access code rejects digits only', 'actual' => access_code_meets_requirements('12345'), 'expected' => false],
+    ['label' => 'access code rejects short values', 'actual' => access_code_meets_requirements('a123'), 'expected' => false],
+    ['label' => 'access code rejects punctuation', 'actual' => access_code_meets_requirements('ab12!'), 'expected' => false],
     [
         'label' => 'condition payload maps row',
         'actual' => condition_payload([

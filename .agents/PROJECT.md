@@ -22,7 +22,7 @@ Experiment Assignment App is a PHP/MySQL application for managing student experi
 - [x] 2026-05-26: Pool renderer grading regression fix
 - [x] 2026-07-05: Tabular approval reports
 - [x] 2026-09-09: V3 secure configuration and schema foundation
-- [ ] V3 student and administrator authentication
+- [x] 2026-09-09: V3 student and administrator authentication
 - [ ] V3 course groups, roster import, and login-code lifecycle
 - [ ] V3 experiment audiences, capacity, rewards, readiness, and completeness
 - [ ] V3 operational QA and clean production cutover
@@ -804,3 +804,62 @@ Observed on 2026-09-09:
 - Implement student email-plus-code authentication and administrator code authentication.
 - Add secure sessions, code-version revocation, throttling, logout, CSRF protection, and protected management endpoints.
 - Add an administrator-code hash provisioning helper.
+
+## 2026-09-09: V3 Student And Administrator Authentication
+
+### Goal
+
+Replace email-only student identification and hidden-URL management access with secure, revocable student and administrator sessions before activating the new semester roster.
+
+### What Changed
+
+- Added student login, session-status, and logout endpoints using email plus an individual hashed access code.
+- Bound student overview, claim, and slot-choice identity to the authenticated session instead of request-supplied email values.
+- Added administrator login, session-status, and logout endpoints backed by `ADMIN_ACCESS_CODE_HASH` from `.env`.
+- Protected all management read endpoints with administrator authentication and all student/management writes with session-bound CSRF tokens.
+- Added secure session-cookie defaults, configurable idle timeouts, session-ID regeneration at login, and login-code-version revocation for student sessions.
+- Added database-backed throttling for repeated student and administrator login failures and generic authentication error responses.
+- Added no-store and content-type hardening headers to JSON responses.
+- Added student and administrator login/logout user interfaces without storing plaintext codes in browser storage.
+- Added `scripts/generate_admin_access_code.php` to generate a strong one-time administrator code and its password hash.
+- Expanded validation, text-quality, configuration, and API smoke coverage for authentication, CSRF, identity binding, and code-change revocation.
+- Updated deployment and canonical context documentation.
+
+### How To Run
+
+1. Run `php scripts/generate_admin_access_code.php`.
+2. Put the displayed `ADMIN_ACCESS_CODE_HASH=...` line in the private deployment `.env`.
+3. Keep the displayed plaintext administrator code in a separate secure channel; it cannot be recovered from the hash.
+4. Use HTTPS in production with `APP_SESSION_SECURE=true`.
+5. Student access-code creation and one-time CSV delivery are completed by the next roster milestone.
+
+### How To Test
+
+- `Get-ChildItem -Recurse -Filter *.php | ForEach-Object { php -l $_.FullName }`
+- `node --check assets/app.js`
+- `node --check manage/manage.js`
+- `php tests/config_test.php`
+- `php tests/schema_test.php`
+- `php tests/validation_test.php`
+- `php tests/text_quality_test.php`
+- `php tests/js_regression_test.php`
+- `php tests/api_smoke_test.php`
+
+Observed on 2026-09-09:
+
+- PHP syntax checks passed for all PHP files.
+- JavaScript syntax checks passed for both browser applications.
+- All six PHP test scripts passed, including the SQLite-backed authentication smoke flow.
+
+### Known Issues And Decisions
+
+- Plaintext student codes are intentionally not recoverable. Their generation, one-time CSV download, and manual rotation controls belong to the roster milestone.
+- Student and administrator authentication share one application session cookie but use isolated role-specific session records and CSRF tokens.
+- A student session is invalidated whenever that student's persisted `login_code_version` changes.
+- Authentication throttling uses a 15-minute attempt window, five failures, and a 15-minute lock.
+- Production cookie security assumes HTTPS and `APP_SESSION_SECURE=true`.
+
+### Next Steps
+
+- Implement mandatory course-group membership at roster import and student management boundaries.
+- Add one-time generated student-code CSV delivery, generate-missing behavior, and manual code rotation.

@@ -11,13 +11,15 @@ The app has two browser UIs:
 - `index.html`: student-facing page.
 - `manage/index.html`: staff-facing management page.
 
-The deployed behavior began as V2, a greenfield continuation of an older one-experiment app. A V3 semester-preparation program is now in progress. Its first milestone adds the schema and secure-configuration foundation while preserving the existing runtime behavior until the subsequent authentication, roster, and experiment-operation milestones activate it. Backward compatibility with the old V1 schema is intentionally not preserved.
+The deployed behavior began as V2, a greenfield continuation of an older one-experiment app. A V3 semester-preparation program is now in progress. The schema/configuration and authentication milestones are complete; roster and experiment-operation milestones activate the remaining V3 behavior. Backward compatibility with the old V1 schema is intentionally not preserved.
 
 ## Current Product Decisions
 
-- Students identify by `@students.zhaw.ch` email address.
-- Email-only retrieval of previous access information is accepted for now.
-- Staff authentication is not implemented yet. The management UI is protected only by a hidden URL for now.
+- Students authenticate with a `@students.zhaw.ch` email address plus their individual access code.
+- Student identity for overview, claim, and slot operations comes only from the server-side session, never from an email supplied to those endpoints.
+- The staff UI and all management endpoints require the administrator access code configured as a hash in `.env`.
+- Student and administrator sessions use secure, HTTP-only, SameSite cookies, idle expiration, login throttling, logout, and CSRF protection for writes.
+- Changing a student's login-code version invalidates that student's existing session.
 - The global allowlist is `allowed_students`.
 - Individual experiments can be visible to all globally allowed students or only to explicitly eligible students.
 - Students can claim at most one participation per visible experiment.
@@ -164,8 +166,8 @@ The Reports view is cross-experiment and read-only. It derives each student `Kü
 
 The student UI should:
 
-- Ask for email if no local email is stored.
-- Store the email in local browser storage for convenience.
+- Ask for email and access code if no authenticated server session exists.
+- Store only the email in local browser storage for convenience; never store the access code.
 - Show a full-width navbar with `Experimente`, the active email, and a `Beenden` action once a student session is active.
 - Load overview data dynamically from `api/student_overview.php`.
 - Show visible experiments with columns for experiment, condition, assignment, assignment date, and `Angerechnet`.
@@ -187,6 +189,10 @@ The student UI should:
 - `database/live_database.sql`: historical live dump from the V1 app. Treat it as migration context only; do not edit it unless the user explicitly asks for migration work.
 - `.env.example`: deployment configuration template; the real `.env` is ignored.
 - `config/config.php`: environment-backed deployment configuration plus `EXPERIMENT_DB_DSN` test override.
+- `scripts/generate_admin_access_code.php`: one-time administrator access-code and hash generator.
+- `api/_auth.php`: shared secure-session, authorization, CSRF, access-code validation, and throttling helpers.
+- `api/student_login.php`, `api/student_session.php`, `api/student_logout.php`: student authentication lifecycle.
+- `api/manage/login.php`, `api/manage/session.php`, `api/manage/logout.php`: administrator authentication lifecycle.
 - `api/_bootstrap.php`: shared API helpers and domain read helpers.
 - `api/student_overview.php`: student overview endpoint.
 - `api/claim.php`: claim or retrieve participation access.

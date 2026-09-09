@@ -5,6 +5,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/../_bootstrap.php';
 
 require_method('POST');
+$adminAuth = require_admin_authentication();
+require_csrf_token($adminAuth);
 
 $payload = read_json_body();
 $email = normalize_student_email((string) ($payload['email'] ?? ''));

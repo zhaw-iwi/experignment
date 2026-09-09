@@ -8,6 +8,20 @@ function environment_value(string $name, ?string $default = null): ?string
     return is_string($value) ? $value : $default;
 }
 
+function environment_bool(string $name, ?bool $default = null): ?bool
+{
+    $value = environment_value($name);
+    if ($value === null || trim($value) === '') {
+        return $default;
+    }
+
+    return match (strtolower(trim($value))) {
+        '1', 'true', 'yes', 'on' => true,
+        '0', 'false', 'no', 'off' => false,
+        default => throw new RuntimeException('Invalid boolean environment value for ' . $name . '.'),
+    };
+}
+
 function load_environment_file(string $path): void
 {
     if (!is_file($path)) {

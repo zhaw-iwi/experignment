@@ -47,5 +47,11 @@ $GLOBALS['APP_CONFIG'] = [
     ],
     'auth' => [
         'admin_access_code_hash' => environment_value('ADMIN_ACCESS_CODE_HASH'),
+        'admin_idle_seconds' => (int) (environment_value('ADMIN_SESSION_IDLE_SECONDS', '7200') ?? '7200'),
+        'student_idle_seconds' => (int) (environment_value('STUDENT_SESSION_IDLE_SECONDS', '28800') ?? '28800'),
+    ],
+    'session' => [
+        'name' => environment_value('APP_SESSION_NAME', 'experiment_assignment_v3') ?? 'experiment_assignment_v3',
+        'secure' => environment_bool('APP_SESSION_SECURE'),
     ],
 ];

@@ -6,7 +6,8 @@ require_once __DIR__ . '/_bootstrap.php';
 
 require_method('GET');
 
-$email = normalize_student_email((string) ($_GET['email'] ?? ''));
-$overview = student_overview(db(), $email);
+$pdo = db();
+$auth = require_student_authentication($pdo);
+$overview = student_overview($pdo, $auth['email']);
 
 json_response(200, $overview);

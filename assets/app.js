@@ -4,6 +4,7 @@ const messageTimers = new WeakMap();
 
 const state = {
     email: "",
+    csrfToken: "",
     overview: null,
     activeExperimentId: null,
 };
@@ -12,6 +13,7 @@ const dom = {
     emailPanel: document.getElementById("emailPanel"),
     emailForm: document.getElementById("emailForm"),
     studentEmail: document.getElementById("studentEmail"),
+    studentAccessCode: document.getElementById("studentAccessCode"),
     identifyButton: document.getElementById("identifyButton"),
     entryMessage: document.getElementById("entryMessage"),
     studentSessionControls: document.getElementById("studentSessionControls"),
@@ -27,40 +29,92 @@ document.addEventListener("DOMContentLoaded", () => {
     const storedEmail = readStoredEmail();
     if (storedEmail) {
         dom.studentEmail.value = storedEmail;
-        loadOverview(storedEmail);
     }
 
-    dom.emailForm.addEventListener("submit", (event) => {
+    restoreStudentSession();
+
+    dom.emailForm.addEventListener("submit", async (event) => {
         event.preventDefault();
         const email = dom.studentEmail.value.trim().toLowerCase();
+        const accessCode = dom.studentAccessCode.value;
         if (!isStudentEmail(email)) {
             showMessage(dom.entryMessage, "Bitte geben Sie eine gültige Studierenden-E-Mail-Adresse ein.", "warning");
             return;
         }
-        loadOverview(email);
+        if (accessCode.length < 5) {
+            showMessage(dom.entryMessage, "Bitte geben Sie Ihren Zugangscode ein.", "warning");
+            return;
+        }
+        await loginStudent(email, accessCode);
     });
 
-    dom.changeEmailButton.addEventListener("click", () => {
-        state.email = "";
-        state.overview = null;
-        state.activeExperimentId = null;
-        clearStoredEmail();
-        renderSessionControls();
-        dom.overviewPanel.classList.add("d-none");
-        dom.emailPanel.classList.remove("d-none");
-        dom.studentEmail.focus();
+    dom.changeEmailButton.addEventListener("click", async () => {
+        try {
+            await apiRequest("api/student_logout.php", { method: "POST" });
+        } catch (error) {
+            // Always clear the local view, even if the session already expired.
+        }
+        resetStudentSession(true);
     });
 });
 
-async function loadOverview(email) {
+async function restoreStudentSession() {
+    try {
+        const session = await apiRequest("api/student_session.php", { method: "GET" });
+        if (!session.authenticated) {
+            resetStudentSession(false);
+            return;
+        }
+        state.email = session.email;
+        state.csrfToken = session.csrfToken;
+        writeStoredEmail(session.email);
+        await loadOverview();
+    } catch (error) {
+        resetStudentSession(false);
+    }
+}
+
+async function loginStudent(email, accessCode) {
+    clearMessage(dom.entryMessage);
+    setIdentifyLoading(true);
+    try {
+        const session = await apiRequest("api/student_login.php", {
+            method: "POST",
+            body: JSON.stringify({ email, accessCode }),
+        });
+        state.email = session.email;
+        state.csrfToken = session.csrfToken;
+        dom.studentAccessCode.value = "";
+        writeStoredEmail(session.email);
+        await loadOverview();
+    } catch (error) {
+        showMessage(dom.entryMessage, error.message || "Die Anmeldung ist fehlgeschlagen.", "danger");
+    } finally {
+        setIdentifyLoading(false);
+    }
+}
+
+function resetStudentSession(clearRememberedEmail) {
+    state.email = "";
+    state.csrfToken = "";
+    state.overview = null;
+    state.activeExperimentId = null;
+    if (clearRememberedEmail) {
+        clearStoredEmail();
+        dom.studentEmail.value = "";
+    }
+    dom.studentAccessCode.value = "";
+    renderSessionControls();
+    dom.overviewPanel.classList.add("d-none");
+    dom.emailPanel.classList.remove("d-none");
+    dom.studentEmail.focus();
+}
+
+async function loadOverview() {
     clearMessage(dom.entryMessage);
     clearMessage(dom.overviewMessage);
-    setIdentifyLoading(true);
-
     try {
-        const overview = await apiRequest(`api/student_overview.php?email=${encodeURIComponent(email)}`, {
-            method: "GET",
-        });
+        const overview = await apiRequest("api/student_overview.php", { method: "GET" });
         state.email = overview.email;
         state.overview = overview;
         writeStoredEmail(overview.email);
@@ -69,9 +123,9 @@ async function loadOverview(email) {
         dom.emailPanel.classList.add("d-none");
         dom.overviewPanel.classList.remove("d-none");
     } catch (error) {
-        showMessage(dom.entryMessage, error.message || "Die Übersicht konnte nicht geladen werden.", "danger");
-    } finally {
-        setIdentifyLoading(false);
+        if (state.email) {
+            showMessage(dom.overviewMessage, error.message || "Die Übersicht konnte nicht geladen werden.", "danger");
+        }
     }
 }
 
@@ -336,7 +390,6 @@ async function claimExperiment(experimentId, conditionId) {
         const payload = await apiRequest("api/claim.php", {
             method: "POST",
             body: JSON.stringify({
-                email: state.email,
                 experimentId,
                 conditionId,
             }),
@@ -355,7 +408,6 @@ async function chooseSlot(experimentId, slotId) {
         const payload = await apiRequest("api/choose_slot.php", {
             method: "POST",
             body: JSON.stringify({
-                email: state.email,
                 experimentId,
                 slotId,
             }),
@@ -428,7 +480,7 @@ async function copyText(value) {
 
 function setIdentifyLoading(loading) {
     dom.identifyButton.disabled = loading;
-    dom.identifyButton.textContent = loading ? "Lädt ..." : "Anzeigen";
+    dom.identifyButton.textContent = loading ? "Lädt ..." : "Anmelden";
 }
 
 function isStudentEmail(email) {
@@ -491,12 +543,19 @@ function escapeHtml(value) {
 }
 
 async function apiRequest(url, options) {
+    const requestOptions = options || {};
+    const headers = {
+        "Content-Type": "application/json",
+        ...(requestOptions.headers || {}),
+    };
+    if ((requestOptions.method || "GET").toUpperCase() !== "GET" && state.csrfToken) {
+        headers["X-CSRF-Token"] = state.csrfToken;
+    }
+
     const response = await fetch(url, {
-        headers: {
-            "Content-Type": "application/json",
-        },
         credentials: "same-origin",
-        ...options,
+        ...requestOptions,
+        headers,
     });
 
     let payload = {};
@@ -509,6 +568,9 @@ async function apiRequest(url, options) {
     }
 
     if (!response.ok) {
+        if (response.status === 401 && url !== "api/student_login.php") {
+            resetStudentSession(false);
+        }
         throw new Error(payload.message || "Die Anfrage ist fehlgeschlagen.");
     }
 

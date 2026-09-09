@@ -1,4 +1,6 @@
 const state = {
+    authenticated: false,
+    csrfToken: "",
     dashboard: null,
     report: null,
     reportSort: {
@@ -24,6 +26,15 @@ const messageTimers = new WeakMap();
 let activeRequestCount = 0;
 
 const dom = {
+    adminLoginView: document.getElementById("adminLoginView"),
+    adminLoginForm: document.getElementById("adminLoginForm"),
+    adminAccessCode: document.getElementById("adminAccessCode"),
+    adminLoginButton: document.getElementById("adminLoginButton"),
+    adminLoginMessage: document.getElementById("adminLoginMessage"),
+    managementNavbar: document.getElementById("managementNavbar"),
+    managementPhaseStrip: document.getElementById("managementPhaseStrip"),
+    managementMain: document.getElementById("managementMain"),
+    adminLogoutButton: document.getElementById("adminLogoutButton"),
     brandHomeButton: document.getElementById("brandHomeButton"),
     reportButton: document.getElementById("reportButton"),
     allowedCount: document.getElementById("allowedCount"),
@@ -172,10 +183,17 @@ document.addEventListener("DOMContentLoaded", () => {
     dom.participantRandomSeed.value = defaultSeed();
     dom.conditionRandomSeed.value = defaultSeed();
     updateSystemStatus();
-    loadDashboard();
+    initializeAdminSession();
 });
 
 function wireEvents() {
+    dom.adminLoginForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        await loginAdmin();
+    });
+    dom.adminLogoutButton.addEventListener("click", async () => {
+        await logoutAdmin();
+    });
     dom.brandHomeButton.addEventListener("click", () => {
         openOverview();
     });
@@ -415,6 +433,81 @@ function wireEvents() {
         clearSlotForm();
         await loadDashboard("Zeitslot gespeichert.");
     });
+}
+
+async function initializeAdminSession() {
+    try {
+        const session = await apiRequest("../api/manage/session.php", { method: "GET" });
+        if (!session.authenticated) {
+            showAdminLogin();
+            return;
+        }
+        state.authenticated = true;
+        state.csrfToken = session.csrfToken;
+        showAdminApplication();
+        await loadDashboard();
+    } catch (error) {
+        showAdminLogin();
+        showMessage(error.message || "Die Sitzung konnte nicht geprüft werden.", "danger", dom.adminLoginMessage);
+    }
+}
+
+async function loginAdmin() {
+    const accessCode = dom.adminAccessCode.value;
+    if (accessCode.length < 5) {
+        showMessage("Bitte geben Sie den Admin-Zugangscode ein.", "warning", dom.adminLoginMessage);
+        return;
+    }
+
+    dom.adminLoginButton.disabled = true;
+    clearMessage(dom.adminLoginMessage);
+    try {
+        const session = await apiRequest("../api/manage/login.php", {
+            method: "POST",
+            body: JSON.stringify({ accessCode }),
+        });
+        state.authenticated = true;
+        state.csrfToken = session.csrfToken;
+        dom.adminAccessCode.value = "";
+        showAdminApplication();
+        await loadDashboard();
+    } catch (error) {
+        showAdminLogin();
+        showMessage(error.message || "Die Anmeldung ist fehlgeschlagen.", "danger", dom.adminLoginMessage);
+    } finally {
+        dom.adminLoginButton.disabled = false;
+    }
+}
+
+async function logoutAdmin() {
+    try {
+        await apiRequest("../api/manage/logout.php", { method: "POST" });
+    } catch (error) {
+        // Clear the local application state even when the server session expired.
+    }
+    showAdminLogin();
+}
+
+function showAdminApplication() {
+    dom.adminLoginView.classList.add("d-none");
+    dom.managementNavbar.classList.remove("d-none");
+    dom.managementPhaseStrip.classList.remove("d-none");
+    dom.managementMain.classList.remove("d-none");
+}
+
+function showAdminLogin() {
+    state.authenticated = false;
+    state.csrfToken = "";
+    state.dashboard = null;
+    state.report = null;
+    state.selectedExperimentId = null;
+    state.view = "overview";
+    dom.managementNavbar.classList.add("d-none");
+    dom.managementPhaseStrip.classList.add("d-none");
+    dom.managementMain.classList.add("d-none");
+    dom.adminLoginView.classList.remove("d-none");
+    dom.adminAccessCode.value = "";
+    dom.adminAccessCode.focus();
 }
 
 async function loadDashboard(successMessage = "") {
@@ -2903,12 +2996,18 @@ function escapeHtml(value) {
 async function apiRequest(url, options) {
     beginRequest();
     try {
+        const requestOptions = options || {};
+        const headers = {
+            "Content-Type": "application/json",
+            ...(requestOptions.headers || {}),
+        };
+        if ((requestOptions.method || "GET").toUpperCase() !== "GET" && state.csrfToken) {
+            headers["X-CSRF-Token"] = state.csrfToken;
+        }
         const response = await fetch(url, {
-            headers: {
-                "Content-Type": "application/json",
-            },
             credentials: "same-origin",
-            ...options,
+            ...requestOptions,
+            headers,
         });
 
         let payload = {};
@@ -2921,6 +3020,9 @@ async function apiRequest(url, options) {
         }
 
         if (!response.ok) {
+            if (response.status === 401 && url !== "../api/manage/login.php") {
+                showAdminLogin();
+            }
             throw new Error(payload.message || "Die Anfrage ist fehlgeschlagen.");
         }
 

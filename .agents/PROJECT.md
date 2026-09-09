@@ -23,7 +23,7 @@ Experiment Assignment App is a PHP/MySQL application for managing student experi
 - [x] 2026-07-05: Tabular approval reports
 - [x] 2026-09-09: V3 secure configuration and schema foundation
 - [x] 2026-09-09: V3 student and administrator authentication
-- [ ] V3 course groups, roster import, and login-code lifecycle
+- [x] 2026-09-09: V3 course groups, roster import, and login-code lifecycle
 - [ ] V3 experiment audiences, capacity, rewards, readiness, and completeness
 - [ ] V3 operational QA and clean production cutover
 
@@ -863,3 +863,66 @@ Observed on 2026-09-09:
 
 - Implement mandatory course-group membership at roster import and student management boundaries.
 - Add one-time generated student-code CSV delivery, generate-missing behavior, and manual code rotation.
+
+## 2026-09-09: V3 Course Groups, Roster Import, And Login-Code Lifecycle
+
+### Goal
+
+Make course membership a required part of the semester roster and provide the complete, non-recoverable student access-code provisioning workflow.
+
+### What Changed
+
+- Made `allowed_students.group_id` non-null in the clean-install schema.
+- Added management create, edit, and guarded-delete operations for course groups and their optional point maximum.
+- Required a course for manual student creation and allowed manual updates to an existing student's course membership.
+- Replaced email-only bulk import with repeatable grouped roster upserts supporting comma-, semicolon-, or tab-delimited `email` and `group` columns.
+- Made roster imports preserve existing login codes, update changed course memberships, and create previously unknown course labels.
+- Added course, code-completeness, and code-set-time information to the management dashboard without exposing password hashes.
+- Added roster filters for email and course.
+- Added course data and course filtering to the cross-experiment report and its displayed CSV export.
+- Added a cryptographically random five-character lowercase letter/digit generator that guarantees at least one letter and one digit.
+- Added a protected batch endpoint that hashes codes, generates only missing codes, and returns plaintext only in its immediate two-column CSV response.
+- Added an explicit one-time-download warning and confirmation in the management UI.
+- Added per-student manual code set/rotation with server-side complexity validation and code-version session invalidation.
+- Expanded the SQLite HTTP smoke test for course operations, repeat imports, code generation, hash-only persistence, no-repeat export, manual code validation, and revocation.
+- Updated README and canonical project context documentation.
+
+### How To Run
+
+1. Open the `Zugelassene Studierende` management view.
+2. Create course groups directly, or import a roster with headers such as `email;group`; unknown group labels are created automatically.
+3. Set each group's maximum points before opening the semester. An unset value remains visible as an incomplete configuration for the readiness milestone.
+4. Click `Fehlende Codes erstellen und CSV laden` once the roster is ready, confirm the warning, and retain the downloaded CSV securely.
+5. Use `Code setzen` or `Code ändern` on an individual student when manual provisioning or rotation is needed.
+
+### How To Test
+
+- `Get-ChildItem -Recurse -Filter *.php | ForEach-Object { php -l $_.FullName }`
+- `node --check assets/app.js`
+- `node --check manage/manage.js`
+- `php tests/config_test.php`
+- `php tests/schema_test.php`
+- `php tests/validation_test.php`
+- `php tests/text_quality_test.php`
+- `php tests/js_regression_test.php`
+- `php tests/api_smoke_test.php`
+
+Observed on 2026-09-09:
+
+- PHP syntax checks passed for all PHP files.
+- JavaScript syntax checks passed for both browser applications.
+- All six PHP test scripts passed, including the SQLite-backed grouped-roster and one-time-code flow.
+
+### Known Issues And Decisions
+
+- The production seed remains empty. The example seed intentionally leaves student codes unset so the one-time generation workflow can be exercised.
+- Imports are upserts, not destructive synchronization: students omitted from a later file are retained.
+- A student belongs to exactly one course. Re-importing that email with a different group updates the membership without changing the student's access code.
+- A course cannot be deleted while referenced by a student or experiment audience.
+- The batch endpoint never returns, recovers, or replaces existing codes. A lost CSV therefore requires explicit per-student rotation or clearing/regeneration in a future operation.
+- Manually set codes allow uppercase characters but remain strictly alphanumeric and require at least one letter and one digit.
+
+### Next Steps
+
+- Activate experiment course audiences, schedules, participant maxima, rewards, and capped credit totals.
+- Add ready-to-open validation, operational completeness indicators, explicit undated slots, admin notes, and audit events.

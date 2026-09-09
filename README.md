@@ -29,7 +29,7 @@ mysql -u USER -p DATABASE < database/schema.sql
 mysql -u USER -p DATABASE < database/seed.sql
 ```
 
-`seed.sql` intentionally contains no semester-specific records. Import course groups and students through the management workflow after deployment. Use `database/seed_examples.sql` only for a throwaway/demo database because it creates representative example groups, students, experiments, conditions, selected participants, staff-prepared values, access pools, and slots.
+`seed.sql` intentionally contains no semester-specific records. Import course groups and students through the management workflow after deployment. Use `database/seed_examples.sql` only for a throwaway/demo database because it creates representative example groups, students, experiments, conditions, selected participants, staff-prepared values, access pools, and slots. Example students intentionally start without access codes; create and download them from the management roster before testing student login.
 
 Use `database/reset.sql` when you want to remove all experiment configuration and runtime data from a deployment while keeping student groups, students, and their login-code state.
 
@@ -67,6 +67,8 @@ The V3 schema foundation includes course groups, student login-code metadata, au
 
 Student codes are never stored in browser storage. The server stores password hashes only, throttles repeated login failures, and invalidates an active student session when that student's code version changes.
 
+Generated student codes are exactly five lowercase alphanumeric characters with at least one letter and one digit. A management user may manually set a longer mixed-case alphanumeric code that meets the same minimum letter-and-digit requirement.
+
 ## Staff Flow
 
 The staff UI is at `manage/index.html`.
@@ -76,7 +78,12 @@ It requires the administrator access code configured as `ADMIN_ACCESS_CODE_HASH`
 It supports:
 
 - adding allowed students
-- bulk-importing allowed students
+- creating and editing course groups with an optional point maximum during setup
+- assigning exactly one course group to every student
+- repeatedly importing grouped rosters from `email;group` CSV, including safe membership updates and automatic creation of new course labels
+- filtering the roster by course and email
+- generating codes only for students whose code is missing and downloading their plaintext values in a one-time CSV response
+- manually setting or rotating an individual student code at any time
 - opening the dedicated global allowlist view from the editable student-count badge
 - viewing and removing allowed students without participations
 - creating and renaming experiments
@@ -104,8 +111,8 @@ It supports:
 - opening experiment-specific editing by clicking an experiment in the overview
 - opening experiment-specific grading from the overview
 - opening the Reports view from the navbar
-- viewing one report row per globally allowed student with `Kürzel` plus one `0`/`1` approval column per experiment
-- sorting report columns, filtering by `Kürzel`, and downloading the displayed report as CSV
+- viewing one report row per globally allowed student with `Kürzel`, course, and one `0`/`1` approval column per experiment
+- sorting report columns, filtering by `Kürzel` or course, and downloading the displayed report as CSV
 - showing the access reveal time and compact access values in grading, with link fields rendered as labeled buttons
 - filtering and sorting the grading table by each data column
 - building a checked participation selection in the grading modal and applying bulk grading actions
@@ -134,5 +141,5 @@ php tests/api_smoke_test.php
 
 `js_regression_test.php` catches focused management-client regressions that are not covered by JavaScript syntax checking alone.
 `api_smoke_test.php` uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable.
-When SQLite support is available, it covers student and administrator authentication, session-bound identity, CSRF enforcement, login-code session revocation, the student claim/retrieval flow, slot capacity enforcement, management setup actions, allowlist removal guards, participant selection and clearing, condition assignment and clearing, access-pool import, staff-entered access values, confirmation, bulk grading operations, appointment retrieval, reset, randomization, and the management approval report endpoint.
+When SQLite support is available, it covers student and administrator authentication, session-bound identity, CSRF enforcement, grouped roster upserts, course guards, one-time generated-code CSV delivery, hash-only persistence, manual code rotation, login-code session revocation, the student claim/retrieval flow, slot capacity enforcement, management setup actions, allowlist removal guards, participant selection and clearing, condition assignment and clearing, access-pool import, staff-entered access values, confirmation, bulk grading operations, appointment retrieval, reset, randomization, and the management approval report endpoint.
 The report coverage includes the distinction between opened access and confirmed `Angerechnet` approval.

@@ -20,7 +20,9 @@ The deployed behavior began as V2, a greenfield continuation of an older one-exp
 - The staff UI and all management endpoints require the administrator access code configured as a hash in `.env`.
 - Student and administrator sessions use secure, HTTP-only, SameSite cookies, idle expiration, login throttling, logout, and CSRF protection for writes.
 - Changing a student's login-code version invalidates that student's existing session.
-- The global allowlist is `allowed_students`.
+- The global roster is `allowed_students`; every student row has exactly one non-null `student_groups` membership.
+- Course groups can be created explicitly or automatically by grouped roster import. Their point maximum may remain unset during initial import but must be completed before semester opening.
+- Grouped roster imports are repeatable upserts: new students are added, existing course memberships are updated, and login-code hashes are preserved.
 - Individual experiments can be visible to all globally allowed students or only to explicitly eligible students.
 - Students can claim at most one participation per visible experiment.
 - Closed experiments remain visible to eligible students, but the action button is disabled and access data is not shown.
@@ -37,6 +39,8 @@ The deployed behavior began as V2, a greenfield continuation of an older one-exp
 - A reward that would cross the course maximum is partially counted, although course designers should configure rewards to avoid this case.
 - Student login requires email plus a student login code. Generated codes are five lowercase alphanumeric characters containing at least one letter and one digit; manually set codes may be longer and use uppercase letters.
 - Only login-code hashes are persisted. Plaintext generated codes are available in a one-time CSV response and cannot be recovered later.
+- Generated codes are created only for students whose code hash is missing. Existing codes are never included in or replaced by that batch response.
+- Administrators can manually set or rotate one student's code; this increments the code version and immediately revokes that student's session.
 - Regenerating a student login code must invalidate existing student sessions.
 - The administrator UI will use a hashed access code configured through `.env` and a protected server-side session.
 - The V3 operations roadmap includes ready-to-open validation, completeness indicators, explicit undated slots, and an audit log.
@@ -151,7 +155,7 @@ The management UI should support:
 - Show a navbar status indicator while backend requests are running.
 - View registered students who have not opened access yet.
 - View a cross-experiment approval report with one row per globally allowed student.
-- Sort approval-report columns, filter the report by student `Kürzel`, and download the displayed report as CSV.
+- Sort approval-report columns, filter the report by student `Kürzel` or course, and download the displayed report as CSV.
 - Enter appointment text per participation.
 - Toggle `Angerechnet`.
 - Reset participations and release access data when desired.
@@ -160,7 +164,7 @@ The current V2 staff API is intentionally centralized in `api/manage/actions.php
 
 The grading view builds its table from the selected experiment configuration. It always shows who opened access information and when (`Zugang geöffnet`, backed by `participations.assigned_at`), and only shows condition, slot, compact access-field, and appointment columns when those features are configured for the experiment. Link access fields are shown as buttons labeled with the field name instead of raw URLs. Staff can filter and sort each data column in the grading table. The bulk-grading modal uses the same column dropdown presentation as an additive selection builder: searches and value checks add matching rows to the checked set, while row checkboxes remove individual selections. Bulk actions apply `Anrechnen`, `Anrechnung entfernen`, or `Reset` to explicit participation IDs. Bulk reset releases access pool rows and deletes related runtime data inside one transaction. A separate no-shows card lists registered or eligible students who have not clicked `Teilnehmen` and therefore have no participation row yet.
 
-The Reports view is cross-experiment and read-only. It derives each student `Kürzel` from the local part of `allowed_students.student_email`, includes every globally allowed student as one row, and includes every experiment as a `0`/`1` column. A value is `1` only when the matching participation has `confirmed_at IS NOT NULL`; opening access without staff confirmation remains `0`. The CSV download is generated from the currently displayed filtered/sorted table.
+The Reports view is cross-experiment and read-only. It derives each student `Kürzel` from the local part of `allowed_students.student_email`, includes the student's course, includes every globally allowed student as one row, and includes every experiment as a `0`/`1` column. A value is `1` only when the matching participation has `confirmed_at IS NOT NULL`; opening access without staff confirmation remains `0`. The visible rows can be filtered by `Kürzel` and course. The CSV download is generated from the currently displayed filtered/sorted table.
 
 ## Student UI Responsibilities
 
@@ -200,6 +204,7 @@ The student UI should:
 - `api/manage/dashboard.php`: staff dashboard payload.
 - `api/manage/report.php`: cross-experiment approval report payload for UI and CSV export.
 - `api/manage/actions.php`: staff write actions.
+- `api/manage/generate_student_codes.php`: hash-only batch code generation with one-time plaintext CSV delivery.
 - `assets/app.js`: student UI logic.
 - `manage/manage.js`: staff UI logic.
 - `.agents/PROJECT.md`: milestone audit trail.

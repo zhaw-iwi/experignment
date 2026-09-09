@@ -112,22 +112,6 @@ function login_admin(string $baseUrl, string $accessCode): array
     return $response;
 }
 
-function set_student_login_code(string $dbPath, string $email, string $accessCode): void
-{
-    $pdo = new PDO('sqlite:' . $dbPath, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-    $statement = $pdo->prepare(
-        'UPDATE allowed_students
-         SET login_code_hash = :login_code_hash,
-             login_code_version = login_code_version + 1,
-             login_code_set_at = CURRENT_TIMESTAMP
-         WHERE student_email = :student_email'
-    );
-    $statement->execute([
-        'login_code_hash' => password_hash($accessCode, PASSWORD_DEFAULT),
-        'student_email' => $email,
-    ]);
-}
-
 function read_server_output(): string
 {
     $output = '';
@@ -217,6 +201,28 @@ function dashboard_assigned_condition_count(array $dashboard, int $experimentId)
     return $count;
 }
 
+function dashboard_group_by_name(array $dashboard, string $name): array
+{
+    foreach ($dashboard['studentGroups'] ?? [] as $group) {
+        if (($group['name'] ?? '') === $name) {
+            return $group;
+        }
+    }
+
+    throw new RuntimeException('Student group not found in dashboard: ' . $name);
+}
+
+function dashboard_student_by_email(array $dashboard, string $email): array
+{
+    foreach ($dashboard['allowedStudents'] ?? [] as $student) {
+        if (($student['email'] ?? '') === $email) {
+            return $student;
+        }
+    }
+
+    throw new RuntimeException('Student not found in dashboard: ' . $email);
+}
+
 function access_item_by_key(array $experiment, string $key): array
 {
     foreach ($experiment['accessItems'] ?? [] as $item) {
@@ -235,9 +241,17 @@ function setup_sqlite_database(string $dbPath): void
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     ]);
 
+    $pdo->exec('CREATE TABLE student_groups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        max_credits REAL NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )');
     $pdo->exec('CREATE TABLE allowed_students (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         student_email TEXT NOT NULL UNIQUE,
+        group_id INTEGER NOT NULL,
         login_code_hash TEXT NULL,
         login_code_version INTEGER NOT NULL DEFAULT 0,
         login_code_set_at TEXT NULL,
@@ -271,6 +285,12 @@ function setup_sqlite_database(string $dbPath): void
         public_name TEXT NOT NULL,
         sort_order INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )');
+    $pdo->exec('CREATE TABLE experiment_group_eligibilities (
+        experiment_id INTEGER NOT NULL,
+        group_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY(experiment_id, group_id)
     )');
     $pdo->exec('CREATE TABLE experiment_eligibilities (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -377,6 +397,7 @@ function setup_sqlite_database(string $dbPath): void
         assigned_count INTEGER NOT NULL
     )');
 
+    $pdo->exec("INSERT INTO student_groups (id, name, max_credits) VALUES (1, 'Course A', 4), (2, 'Course B', 6)");
     $studentCodes = [
         'alice@students.zhaw.ch' => 'alice1',
         'bob@students.zhaw.ch' => 'bob22',
@@ -385,8 +406,8 @@ function setup_sqlite_database(string $dbPath): void
     foreach ($studentCodes as $email => $accessCode) {
         $pdo->prepare(
             'INSERT INTO allowed_students
-                (student_email, login_code_hash, login_code_version, login_code_set_at)
-             VALUES (?, ?, 1, CURRENT_TIMESTAMP)'
+                (student_email, group_id, login_code_hash, login_code_version, login_code_set_at)
+             VALUES (?, 1, ?, 1, CURRENT_TIMESTAMP)'
         )->execute([$email, password_hash($accessCode, PASSWORD_DEFAULT)]);
     }
 
@@ -574,9 +595,10 @@ try {
 
     $response = make_request($baseUrl, 'GET', '/api/manage/report.php');
     assert_equals($response['status'], 200, 'report should return 200');
-    assert_equals(count($response['body']['columns'] ?? []), 3, 'report should include student code plus experiment columns');
+    assert_equals(count($response['body']['columns'] ?? []), 4, 'report should include student code, course, and experiment columns');
     $aliceReportRow = report_row_by_code($response['body'] ?? [], 'alice');
     assert_equals($aliceReportRow['email'] ?? null, 'alice@students.zhaw.ch', 'report row should retain source email');
+    assert_equals($aliceReportRow['groupName'] ?? null, 'Course A', 'report row should expose the student course');
     assert_equals(report_value_for_experiment($response['body'] ?? [], $aliceReportRow, 1), 0, 'unconfirmed claim should not count as approved');
 
     login_student($baseUrl, 'bob@students.zhaw.ch', 'bob22');
@@ -658,6 +680,11 @@ try {
     assert_equals($response['status'], 200, 'management dashboard should return 200');
     assert_equals($response['body']['allowedStudentCount'] ?? null, 3, 'dashboard should count allowed students');
     assert_equals(count($response['body']['allowedStudents'] ?? []), 3, 'dashboard should include allowed student list');
+    assert_equals(count($response['body']['studentGroups'] ?? []), 2, 'dashboard should include course groups');
+    $aliceStudent = dashboard_student_by_email($response['body'] ?? [], 'alice@students.zhaw.ch');
+    assert_equals($aliceStudent['group']['name'] ?? null, 'Course A', 'dashboard should expose student course membership');
+    assert_equals($aliceStudent['loginCodeSet'] ?? null, true, 'dashboard should expose code completeness');
+    assert_true(!array_key_exists('login_code_hash', $aliceStudent), 'dashboard must never expose student password hashes');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'delete_allowed_student',
@@ -669,6 +696,7 @@ try {
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'add_allowed_student',
         'email' => 'eve@students.zhaw.ch',
+        'groupId' => 1,
     ]);
     assert_equals($response['status'], 201, 'management should add removable allowed student');
 
@@ -680,8 +708,58 @@ try {
     assert_equals($response['body']['deleted'] ?? null, true, 'allowlist removal should report deletion');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_student_group',
+        'name' => 'Course C',
+        'maxCredits' => 8,
+    ]);
+    assert_equals($response['status'], 201, 'management should create a course group');
+    $courseCId = (int) ($response['body']['id'] ?? 0);
+    assert_true($courseCId > 0, 'created course group id should be present');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'import_student_roster',
+        'roster' => "email;group\nfrank@students.zhaw.ch;Course C\ngrace@students.zhaw.ch;Imported Course",
+    ]);
+    assert_equals($response['status'], 201, 'management should import a grouped roster');
+    assert_equals($response['body']['created'] ?? null, 2, 'roster import should create two students');
+    assert_equals($response['body']['createdGroups'] ?? null, 1, 'roster import should create an unknown course');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'import_student_roster',
+        'roster' => "group,email\nCourse C,frank@students.zhaw.ch\nCourse C,grace@students.zhaw.ch",
+    ]);
+    assert_equals($response['status'], 201, 'repeated roster import should upsert students');
+    assert_equals($response['body']['updated'] ?? null, 1, 'repeated roster import should update changed course membership');
+    assert_equals($response['body']['unchanged'] ?? null, 1, 'repeated roster import should report unchanged membership');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'delete_student_group',
+        'groupId' => $courseCId,
+    ]);
+    assert_equals($response['status'], 409, 'management should not delete a course group that still has students');
+    assert_equals($response['body']['error_code'] ?? null, 'STUDENT_GROUP_IN_USE', 'course usage guard should be explicit');
+
+    foreach (['frank@students.zhaw.ch', 'grace@students.zhaw.ch'] as $temporaryEmail) {
+        $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+            'action' => 'delete_allowed_student',
+            'email' => $temporaryEmail,
+        ]);
+        assert_equals($response['status'], 200, 'temporary roster student should be removable');
+    }
+    $response = make_request($baseUrl, 'GET', '/api/manage/dashboard.php');
+    $importedCourseId = (int) (dashboard_group_by_name($response['body'] ?? [], 'Imported Course')['id'] ?? 0);
+    foreach ([$courseCId, $importedCourseId] as $temporaryGroupId) {
+        $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+            'action' => 'delete_student_group',
+            'groupId' => $temporaryGroupId,
+        ]);
+        assert_equals($response['status'], 200, 'unused temporary course group should be removable');
+    }
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'add_allowed_student',
         'email' => 'dana@students.zhaw.ch',
+        'groupId' => 1,
     ]);
     assert_equals($response['status'], 201, 'management should add allowed student');
     assert_equals($response['body']['created'] ?? null, true, 'allowed student should be created');
@@ -689,8 +767,47 @@ try {
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'add_allowed_student',
         'email' => 'erik@students.zhaw.ch',
+        'groupId' => 2,
     ]);
     assert_equals($response['status'], 201, 'management should add second allowed student');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/generate_student_codes.php', []);
+    assert_equals($response['status'], 200, 'management should generate missing access codes as CSV');
+    assert_true($response['body'] === null, 'student access-code response should be CSV rather than JSON');
+    assert_true(str_contains($response['raw'], 'email;access_code'), 'student code CSV should contain its header');
+    $generatedCodeMatch = [];
+    assert_true(
+        preg_match('/dana@students\.zhaw\.ch;((?=[a-z0-9]{5}(?:\r?\n|$))(?=[a-z0-9]*[a-z])(?=[a-z0-9]*[0-9])[a-z0-9]{5})/', $response['raw'], $generatedCodeMatch) === 1,
+        'generated Dana code should be five lowercase alphanumeric characters with a letter and digit'
+    );
+    assert_true(str_contains($response['raw'], 'erik@students.zhaw.ch;'), 'student code CSV should include every student whose code was missing');
+    $verificationPdo = new PDO('sqlite:' . $dbPath, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    $hashStatement = $verificationPdo->prepare('SELECT login_code_hash FROM allowed_students WHERE student_email = ?');
+    $hashStatement->execute(['dana@students.zhaw.ch']);
+    $storedCodeHash = (string) ($hashStatement->fetchColumn() ?: '');
+    assert_true($storedCodeHash !== ($generatedCodeMatch[1] ?? ''), 'plaintext generated code must not be stored');
+    assert_true(password_verify((string) ($generatedCodeMatch[1] ?? ''), $storedCodeHash), 'stored hash should verify the one-time generated code');
+    $hashStatement->closeCursor();
+    unset($hashStatement, $verificationPdo);
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/generate_student_codes.php', []);
+    assert_equals($response['status'], 409, 'code generation should not reveal or replace existing codes');
+    assert_equals($response['body']['error_code'] ?? null, 'NO_MISSING_ACCESS_CODES', 'no-missing-code response should be explicit');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'set_student_login_code',
+        'email' => 'dana@students.zhaw.ch',
+        'accessCode' => 'letters',
+    ]);
+    assert_equals($response['status'], 422, 'manual access code should require a digit');
+    assert_equals($response['body']['error_code'] ?? null, 'INVALID_ACCESS_CODE', 'manual code validation should be explicit');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'set_student_login_code',
+        'email' => 'dana@students.zhaw.ch',
+        'accessCode' => 'Dana44',
+    ]);
+    assert_equals($response['status'], 200, 'management should manually set a student access code');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'save_experiment',
@@ -976,8 +1093,7 @@ try {
     ]);
     assert_equals($response['status'], 200, 'management should assign student eligibility');
 
-    set_student_login_code($dbPath, 'dana@students.zhaw.ch', 'dana44');
-    login_student($baseUrl, 'dana@students.zhaw.ch', 'dana44');
+    login_student($baseUrl, 'dana@students.zhaw.ch', 'Dana44');
     $response = make_request($baseUrl, 'POST', '/api/claim.php', [
         'email' => 'dana@students.zhaw.ch',
         'experimentId' => $managedExperimentId,
@@ -1082,7 +1198,12 @@ try {
     assert_equals(count($managedExperiment['accessItems'] ?? []), 0, 'confirmed participations should not expose access data');
     assert_equals($managedExperiment['appointmentText'] ?? null, '09:30', 'student overview should show appointment text');
 
-    set_student_login_code($dbPath, 'dana@students.zhaw.ch', 'dana55');
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'set_student_login_code',
+        'email' => 'dana@students.zhaw.ch',
+        'accessCode' => 'Dana55',
+    ]);
+    assert_equals($response['status'], 200, 'management should rotate a student access code');
     $response = make_request($baseUrl, 'GET', '/api/student_overview.php');
     assert_equals($response['status'], 401, 'changing a student access code should invalidate existing sessions');
 

@@ -33,6 +33,7 @@ $codeFiles = [
     __DIR__ . '/../api/manage/login.php',
     __DIR__ . '/../api/manage/session.php',
     __DIR__ . '/../api/manage/logout.php',
+    __DIR__ . '/../api/manage/generate_student_codes.php',
 ];
 
 $transliterationPattern = '/\b(?:fuer|gueltig|ungueltig|gewaehlt|waehlen|zurueck[\p{L}]*|loesch[\p{L}]*|hinzufueg[\p{L}]*|verfueg[\p{L}]*|oeffn[\p{L}]*|pruef[\p{L}]*|schliess[\p{L}]*|bestaetig[\p{L}]*|ausfuehr[\p{L}]*)\b/iu';

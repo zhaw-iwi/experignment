@@ -86,26 +86,79 @@
     </section>
 
     <section id="allowedStudentsView" class="view-stack d-none">
-        <section id="allowedStudentsCard" class="card shadow-sm">
+        <section id="studentGroupsCard" class="card shadow-sm mb-3">
             <div class="card-header bg-white">
-                <h2 class="h5 mb-1">Zugelassene Studierende</h2>
-                <div class="text-secondary small">Globale Liste aller E-Mail-Adressen, die Experimente sehen können.</div>
+                <h2 class="h5 mb-1">Kurse</h2>
+                <div class="text-secondary small">Jede Studentin und jeder Student gehört genau einem Kurs an.</div>
             </div>
             <div class="card-body">
+                <form id="studentGroupForm" class="row g-2 align-items-end">
+                    <input id="studentGroupId" type="hidden">
+                    <div class="col-md-6">
+                        <label for="studentGroupName" class="form-label">Kursname</label>
+                        <input id="studentGroupName" class="form-control" maxlength="255" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="studentGroupMaxCredits" class="form-label">Maximale Punkte</label>
+                        <input id="studentGroupMaxCredits" class="form-control" type="number" min="0" step="0.01" placeholder="später festlegen">
+                    </div>
+                    <div class="col-md-3 d-flex gap-2">
+                        <button class="btn btn-primary flex-grow-1" type="submit">Speichern</button>
+                        <button id="cancelStudentGroupButton" class="btn btn-outline-secondary d-none" type="button">Abbrechen</button>
+                    </div>
+                </form>
+            </div>
+            <div id="studentGroupList" class="list-group list-group-flush"></div>
+        </section>
+
+        <section id="allowedStudentsCard" class="card shadow-sm">
+            <div class="card-header bg-white d-flex flex-column flex-md-row justify-content-between gap-2 align-items-md-center">
+                <div>
+                    <h2 class="h5 mb-1">Zugelassene Studierende</h2>
+                    <div class="text-secondary small">Kurszuordnung und persönliche Zugangscodes für den aktuellen Semesterbestand.</div>
+                </div>
+                <button id="generateStudentCodesButton" type="button" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-download" aria-hidden="true"></i>
+                    <span>Fehlende Codes erstellen und CSV laden</span>
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-warning small" role="note">
+                    Neu erzeugte Codes werden nur in der unmittelbar heruntergeladenen CSV im Klartext angezeigt. Die Datenbank speichert ausschließlich Hashes; eine spätere Wiederherstellung ist nicht möglich.
+                </div>
                 <form id="allowForm" class="row g-2 align-items-end">
-                    <div class="col-md-8">
+                    <div class="col-md-5">
                         <label for="allowEmail" class="form-label">E-Mail</label>
                         <input id="allowEmail" class="form-control" type="email" placeholder="name@students.zhaw.ch">
                     </div>
                     <div class="col-md-4">
+                        <label for="allowGroupId" class="form-label">Kurs</label>
+                        <select id="allowGroupId" class="form-select" required></select>
+                    </div>
+                    <div class="col-md-3">
                         <button class="btn btn-primary w-100" type="submit">Zulassen</button>
                     </div>
                 </form>
                 <form id="bulkAllowForm" class="mt-3">
-                    <label for="bulkAllowEmails" class="form-label">Mehrere E-Mails importieren</label>
-                    <textarea id="bulkAllowEmails" class="form-control font-monospace" rows="4" placeholder="name@students.zhaw.ch"></textarea>
-                    <button class="btn btn-outline-primary mt-2" type="submit">E-Mails importieren</button>
+                    <label for="rosterImportText" class="form-label">Studierendenliste importieren</label>
+                    <textarea id="rosterImportText" class="form-control font-monospace" rows="5" placeholder="email;group&#10;name@students.zhaw.ch;Kurs A"></textarea>
+                    <div class="form-text">CSV mit den Spalten <code>email</code> und <code>group</code>; Semikolon, Komma oder Tabulator werden erkannt. Neue Kursnamen werden automatisch angelegt.</div>
+                    <button class="btn btn-outline-primary mt-2" type="submit">Liste importieren</button>
                 </form>
+                <hr>
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-5">
+                        <label for="studentFilter" class="form-label">E-Mail filtern</label>
+                        <input id="studentFilter" class="form-control" type="search" autocomplete="off">
+                    </div>
+                    <div class="col-md-4">
+                        <label for="studentGroupFilter" class="form-label">Kurs filtern</label>
+                        <select id="studentGroupFilter" class="form-select"></select>
+                    </div>
+                    <div class="col-md-3">
+                        <div id="studentListSummary" class="small text-secondary"></div>
+                    </div>
+                </div>
             </div>
             <div id="allowedStudentList" class="list-group list-group-flush"></div>
         </section>
@@ -125,11 +178,15 @@
             </div>
             <div class="card-body">
                 <div class="row g-2 align-items-end">
-                    <div class="col-md-8 col-lg-6">
+                    <div class="col-md-5 col-lg-4">
                         <label for="reportStudentFilter" class="form-label">Kürzel filtern</label>
                         <input id="reportStudentFilter" class="form-control" type="search" autocomplete="off" placeholder="z.B. ahilaayu">
                     </div>
-                    <div class="col-md-4 col-lg-6">
+                    <div class="col-md-4 col-lg-4">
+                        <label for="reportGroupFilter" class="form-label">Kurs filtern</label>
+                        <select id="reportGroupFilter" class="form-select"></select>
+                    </div>
+                    <div class="col-md-3 col-lg-4">
                         <div id="reportSummary" class="text-secondary small"></div>
                     </div>
                 </div>
@@ -608,6 +665,32 @@
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Abbrechen</button>
                 <button id="conditionAssignmentSaveButton" type="button" class="btn btn-primary">Zuweisungen speichern</button>
             </div>
+        </div>
+    </div>
+</div>
+
+<div id="studentCodeModal" class="modal fade" tabindex="-1" aria-labelledby="studentCodeModalTitle" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="studentCodeModalTitle" class="modal-title h5">Zugangscode setzen</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+            </div>
+            <form id="studentCodeForm">
+                <div class="modal-body">
+                    <div id="studentCodeModalMessage" class="mb-3 d-none"></div>
+                    <input id="studentCodeEmail" type="hidden">
+                    <div id="studentCodeEmailLabel" class="fw-semibold mb-3"></div>
+                    <label for="studentAccessCode" class="form-label">Neuer Zugangscode</label>
+                    <input id="studentAccessCode" class="form-control" type="password" autocomplete="new-password" minlength="5" maxlength="128" required>
+                    <div class="form-text">5 bis 128 Buchstaben und Ziffern, mindestens ein Buchstabe und eine Ziffer. Großbuchstaben sind erlaubt.</div>
+                    <div class="alert alert-warning small mt-3 mb-0">Das Setzen eines neuen Codes beendet die bestehende Studierendensitzung.</div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Abbrechen</button>
+                    <button type="submit" class="btn btn-primary">Code setzen</button>
+                </div>
+            </form>
         </div>
     </div>
 </div>

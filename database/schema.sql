@@ -25,7 +25,7 @@ CREATE TABLE student_groups (
 CREATE TABLE allowed_students (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     student_email VARCHAR(255) NOT NULL,
-    group_id BIGINT UNSIGNED NULL,
+    group_id BIGINT UNSIGNED NOT NULL,
     login_code_hash VARCHAR(255) NULL,
     login_code_version INT UNSIGNED NOT NULL DEFAULT 0,
     login_code_set_at TIMESTAMP NULL DEFAULT NULL,

@@ -8,6 +8,9 @@ const state = {
         direction: "asc",
     },
     reportFilter: "",
+    reportGroupFilter: "",
+    studentFilter: "",
+    studentGroupFilter: "",
     selectedExperimentId: null,
     view: "overview",
     participantDraftMode: "selected",
@@ -53,6 +56,12 @@ const dom = {
     experimentList: document.getElementById("experimentList"),
     newExperimentButton: document.getElementById("newExperimentButton"),
     allowedStudentsCard: document.getElementById("allowedStudentsCard"),
+    studentGroupForm: document.getElementById("studentGroupForm"),
+    studentGroupId: document.getElementById("studentGroupId"),
+    studentGroupName: document.getElementById("studentGroupName"),
+    studentGroupMaxCredits: document.getElementById("studentGroupMaxCredits"),
+    cancelStudentGroupButton: document.getElementById("cancelStudentGroupButton"),
+    studentGroupList: document.getElementById("studentGroupList"),
     allowedStudentList: document.getElementById("allowedStudentList"),
     experimentFormTitle: document.getElementById("experimentFormTitle"),
     experimentForm: document.getElementById("experimentForm"),
@@ -77,10 +86,22 @@ const dom = {
     conditionSortOrder: document.getElementById("conditionSortOrder"),
     allowForm: document.getElementById("allowForm"),
     allowEmail: document.getElementById("allowEmail"),
+    allowGroupId: document.getElementById("allowGroupId"),
     bulkAllowForm: document.getElementById("bulkAllowForm"),
-    bulkAllowEmails: document.getElementById("bulkAllowEmails"),
+    rosterImportText: document.getElementById("rosterImportText"),
+    generateStudentCodesButton: document.getElementById("generateStudentCodesButton"),
+    studentFilter: document.getElementById("studentFilter"),
+    studentGroupFilter: document.getElementById("studentGroupFilter"),
+    studentListSummary: document.getElementById("studentListSummary"),
+    studentCodeModal: document.getElementById("studentCodeModal"),
+    studentCodeForm: document.getElementById("studentCodeForm"),
+    studentCodeModalMessage: document.getElementById("studentCodeModalMessage"),
+    studentCodeEmail: document.getElementById("studentCodeEmail"),
+    studentCodeEmailLabel: document.getElementById("studentCodeEmailLabel"),
+    studentAccessCode: document.getElementById("studentAccessCode"),
     downloadReportCsvButton: document.getElementById("downloadReportCsvButton"),
     reportStudentFilter: document.getElementById("reportStudentFilter"),
+    reportGroupFilter: document.getElementById("reportGroupFilter"),
     reportSummary: document.getElementById("reportSummary"),
     reportHeaderRow: document.getElementById("reportHeaderRow"),
     reportRows: document.getElementById("reportRows"),
@@ -286,25 +307,60 @@ function wireEvents() {
         clearConditionForm();
     });
 
+    dom.studentGroupForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const editing = dom.studentGroupId.value !== "";
+        await postAction("save_student_group", {
+            id: valueOrNull(dom.studentGroupId.value),
+            name: dom.studentGroupName.value,
+            maxCredits: dom.studentGroupMaxCredits.value,
+        });
+        clearStudentGroupForm();
+        await loadDashboard(editing ? "Kurs aktualisiert." : "Kurs erstellt.");
+    });
+    dom.cancelStudentGroupButton.addEventListener("click", () => {
+        clearStudentGroupForm();
+    });
+
     dom.allowForm.addEventListener("submit", async (event) => {
         event.preventDefault();
         const payload = await postAction("add_allowed_student", {
             email: dom.allowEmail.value,
+            groupId: valueOrNull(dom.allowGroupId.value),
         });
         dom.allowEmail.value = "";
-        await loadDashboard(payload.created ? "E-Mail zugelassen." : "E-Mail war bereits zugelassen.");
+        await loadDashboard(payload.created ? "Studentin oder Student zugelassen." : "Kurszuordnung aktualisiert.");
     });
 
     dom.bulkAllowForm.addEventListener("submit", async (event) => {
         event.preventDefault();
-        const payload = await postAction("bulk_add_allowed_students", {
-            emails: dom.bulkAllowEmails.value,
+        const payload = await postAction("import_student_roster", {
+            roster: dom.rosterImportText.value,
         });
-        dom.bulkAllowEmails.value = "";
-        await loadDashboard(`${payload.created} E-Mails importiert, ${payload.skipped} bereits vorhanden.`);
+        dom.rosterImportText.value = "";
+        await loadDashboard(`${payload.created} neu, ${payload.updated} aktualisiert, ${payload.unchanged} unverändert; ${payload.createdGroups} neue Kurse.`);
+    });
+    dom.generateStudentCodesButton.addEventListener("click", () => {
+        downloadMissingStudentCodes();
+    });
+    dom.studentFilter.addEventListener("input", () => {
+        state.studentFilter = dom.studentFilter.value;
+        renderAllowedStudentList();
+    });
+    dom.studentGroupFilter.addEventListener("change", () => {
+        state.studentGroupFilter = dom.studentGroupFilter.value;
+        renderAllowedStudentList();
+    });
+    dom.studentCodeForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        await saveStudentAccessCode();
     });
     dom.reportStudentFilter.addEventListener("input", () => {
         state.reportFilter = dom.reportStudentFilter.value;
+        renderReportTable();
+    });
+    dom.reportGroupFilter.addEventListener("change", () => {
+        state.reportGroupFilter = dom.reportGroupFilter.value;
         renderReportTable();
     });
     dom.downloadReportCsvButton.addEventListener("click", () => {
@@ -555,6 +611,7 @@ function normalizeViewState() {
 function renderAll() {
     const dashboard = state.dashboard || {
         allowedStudentCount: 0,
+        studentGroups: [],
         allowedStudents: [],
         experiments: [],
         participations: [],
@@ -565,6 +622,8 @@ function renderAll() {
     renderPageTitle();
     renderPhaseStepper();
     renderExperimentList();
+    renderStudentGroupList();
+    renderRosterControls();
     renderAllowedStudentList();
     renderExperimentForm();
     updateExperimentDependentPanels();
@@ -872,11 +931,108 @@ async function deleteExperiment(experiment) {
     await loadDashboard("Experiment gelöscht.");
 }
 
+function renderStudentGroupList() {
+    dom.studentGroupList.innerHTML = "";
+    const groups = state.dashboard?.studentGroups || [];
+    if (groups.length === 0) {
+        dom.studentGroupList.appendChild(emptyListGroupItem("Noch keine Kurse angelegt."));
+        return;
+    }
+
+    for (const group of groups) {
+        const item = document.createElement("div");
+        item.className = "list-group-item d-flex justify-content-between gap-3 align-items-start";
+        const text = document.createElement("div");
+        const name = document.createElement("strong");
+        name.textContent = group.name;
+        const meta = document.createElement("div");
+        meta.className = "small text-secondary mt-1";
+        const maximum = group.maxCredits === null ? "Punktemaximum offen" : `maximal ${formatCreditValue(group.maxCredits)} Punkte`;
+        meta.textContent = `${group.studentCount} Studierende · ${maximum}`;
+        text.append(name, meta);
+
+        const actions = document.createElement("div");
+        actions.className = "d-flex gap-2 flex-wrap justify-content-end";
+        const edit = smallButton("Bearbeiten", "outline-primary");
+        edit.addEventListener("click", () => {
+            dom.studentGroupId.value = String(group.id);
+            dom.studentGroupName.value = group.name;
+            dom.studentGroupMaxCredits.value = group.maxCredits === null ? "" : String(group.maxCredits);
+            dom.cancelStudentGroupButton.classList.remove("d-none");
+            dom.studentGroupName.focus();
+        });
+        const remove = smallButton("Löschen", "outline-danger");
+        remove.disabled = group.studentCount > 0;
+        remove.title = group.studentCount > 0 ? "Kurse mit Studierenden können nicht gelöscht werden." : "Kurs löschen";
+        remove.addEventListener("click", async () => {
+            if (!window.confirm(`Kurs "${group.name}" löschen?`)) {
+                return;
+            }
+            await postAction("delete_student_group", { groupId: group.id });
+            clearStudentGroupForm();
+            await loadDashboard("Kurs gelöscht.");
+        });
+        actions.append(edit, remove);
+        item.append(text, actions);
+        dom.studentGroupList.appendChild(item);
+    }
+}
+
+function clearStudentGroupForm() {
+    dom.studentGroupId.value = "";
+    dom.studentGroupName.value = "";
+    dom.studentGroupMaxCredits.value = "";
+    dom.cancelStudentGroupButton.classList.add("d-none");
+}
+
+function renderRosterControls() {
+    const groups = state.dashboard?.studentGroups || [];
+    const selectedAllowGroup = dom.allowGroupId.value;
+    dom.allowGroupId.innerHTML = "";
+    const choose = document.createElement("option");
+    choose.value = "";
+    choose.textContent = groups.length === 0 ? "Zuerst einen Kurs erstellen" : "Kurs wählen";
+    dom.allowGroupId.appendChild(choose);
+    for (const group of groups) {
+        dom.allowGroupId.appendChild(optionNode(String(group.id), group.name));
+    }
+    if (groups.some((group) => String(group.id) === selectedAllowGroup)) {
+        dom.allowGroupId.value = selectedAllowGroup;
+    }
+
+    if (state.studentGroupFilter !== "" && !groups.some((group) => String(group.id) === state.studentGroupFilter)) {
+        state.studentGroupFilter = "";
+    }
+    dom.studentGroupFilter.innerHTML = "";
+    dom.studentGroupFilter.appendChild(optionNode("", "Alle Kurse"));
+    for (const group of groups) {
+        dom.studentGroupFilter.appendChild(optionNode(String(group.id), group.name));
+    }
+    dom.studentGroupFilter.value = state.studentGroupFilter;
+    if (dom.studentFilter.value !== state.studentFilter) {
+        dom.studentFilter.value = state.studentFilter;
+    }
+
+    const missingCodes = (state.dashboard?.allowedStudents || []).filter((student) => !student.loginCodeSet).length;
+    dom.generateStudentCodesButton.disabled = missingCodes === 0;
+    dom.generateStudentCodesButton.title = missingCodes === 0
+        ? "Alle Studierenden haben einen Zugangscode."
+        : `${missingCodes} fehlende Zugangscodes erstellen und einmalig herunterladen`;
+}
+
 function renderAllowedStudentList() {
     dom.allowedStudentList.innerHTML = "";
-    const students = state.dashboard?.allowedStudents || [];
+    const query = state.studentFilter.trim().toLowerCase();
+    const students = (state.dashboard?.allowedStudents || []).filter((student) => {
+        if (state.studentGroupFilter !== "" && String(student.group?.id || "") !== state.studentGroupFilter) {
+            return false;
+        }
+        return query === "" || student.email.toLowerCase().includes(query);
+    });
+    const total = (state.dashboard?.allowedStudents || []).length;
+    dom.studentListSummary.textContent = `${students.length} von ${total} angezeigt`;
     if (students.length === 0) {
-        dom.allowedStudentList.appendChild(emptyListGroupItem("Keine Studierenden zugelassen."));
+        dom.allowedStudentList.appendChild(emptyListGroupItem(total === 0 ? "Keine Studierenden zugelassen." : "Keine passenden Studierenden."));
         return;
     }
 
@@ -884,17 +1040,42 @@ function renderAllowedStudentList() {
         const item = document.createElement("div");
         item.className = "list-group-item";
         const row = document.createElement("div");
-        row.className = "d-flex justify-content-between gap-3 align-items-start";
+        row.className = "d-flex flex-column flex-lg-row justify-content-between gap-3 align-items-lg-start";
 
         const text = document.createElement("div");
         text.className = "min-width-0";
         const email = document.createElement("strong");
         email.textContent = student.email;
+        const groupBadge = document.createElement("span");
+        groupBadge.className = "badge text-bg-light ms-2";
+        groupBadge.textContent = student.group?.name || "Kein Kurs";
+        const codeBadge = document.createElement("span");
+        codeBadge.className = `badge ms-2 ${student.loginCodeSet ? "text-bg-success" : "text-bg-warning"}`;
+        codeBadge.textContent = student.loginCodeSet ? "Code gesetzt" : "Code fehlt";
         const meta = document.createElement("div");
         meta.className = "small text-secondary mt-1";
-        meta.textContent = `${student.participationCount} Zuweisungen, ${student.confirmedCount} angerechnet, ${student.eligibilityCount} Freigaben`;
-        text.append(email, meta);
+        const codeDate = student.loginCodeSetAt ? ` · Code: ${formatDateTime(student.loginCodeSetAt)}` : "";
+        meta.textContent = `${student.participationCount} Zuweisungen, ${student.confirmedCount} angerechnet, ${student.eligibilityCount} Freigaben${codeDate}`;
+        text.append(email, groupBadge, codeBadge, meta);
 
+        const actions = document.createElement("div");
+        actions.className = "d-flex gap-2 flex-wrap justify-content-end";
+        const groupSelect = document.createElement("select");
+        groupSelect.className = "form-select form-select-sm w-auto";
+        groupSelect.setAttribute("aria-label", `Kurs für ${student.email}`);
+        for (const group of state.dashboard?.studentGroups || []) {
+            groupSelect.appendChild(optionNode(String(group.id), group.name));
+        }
+        groupSelect.value = String(student.group?.id || "");
+        groupSelect.addEventListener("change", async () => {
+            await postAction("add_allowed_student", {
+                email: student.email,
+                groupId: valueOrNull(groupSelect.value),
+            });
+            await loadDashboard("Kurszuordnung aktualisiert.");
+        });
+        const setCode = smallButton(student.loginCodeSet ? "Code ändern" : "Code setzen", "outline-primary");
+        setCode.addEventListener("click", () => openStudentCodeModal(student));
         const remove = smallButton("Entfernen", "outline-danger");
         remove.disabled = student.participationCount > 0;
         remove.title = student.participationCount > 0
@@ -905,13 +1086,93 @@ function renderAllowedStudentList() {
                 return;
             }
             await postAction("delete_allowed_student", { email: student.email });
-            await loadDashboard("E-Mail aus der Zulassungsliste entfernt.");
+            await loadDashboard("Studentin oder Student entfernt.");
         });
 
-        row.append(text, remove);
+        actions.append(groupSelect, setCode, remove);
+        row.append(text, actions);
         item.appendChild(row);
         dom.allowedStudentList.appendChild(item);
     }
+}
+
+function openStudentCodeModal(student) {
+    clearMessage(dom.studentCodeModalMessage);
+    dom.studentCodeEmail.value = student.email;
+    dom.studentCodeEmailLabel.textContent = student.email;
+    dom.studentAccessCode.value = "";
+    bootstrap.Modal.getOrCreateInstance(dom.studentCodeModal).show();
+    dom.studentCodeModal.addEventListener("shown.bs.modal", () => dom.studentAccessCode.focus(), { once: true });
+}
+
+async function saveStudentAccessCode() {
+    const accessCode = dom.studentAccessCode.value.trim();
+    if (!/^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{5,128}$/.test(accessCode)) {
+        showMessage("Der Code muss 5 bis 128 Buchstaben und Ziffern sowie mindestens je einen Buchstaben und eine Ziffer enthalten.", "warning", dom.studentCodeModalMessage);
+        return;
+    }
+    await postAction("set_student_login_code", {
+        email: dom.studentCodeEmail.value,
+        accessCode,
+    }, dom.studentCodeModalMessage);
+    dom.studentAccessCode.value = "";
+    bootstrap.Modal.getOrCreateInstance(dom.studentCodeModal).hide();
+    await loadDashboard("Zugangscode gesetzt; eine bestehende Studierendensitzung wurde beendet.");
+}
+
+async function downloadMissingStudentCodes() {
+    const missingCodes = (state.dashboard?.allowedStudents || []).filter((student) => !student.loginCodeSet).length;
+    if (missingCodes === 0) {
+        showMessage("Alle Studierenden haben bereits einen Zugangscode.", "info");
+        return;
+    }
+    if (!window.confirm(`${missingCodes} Codes werden jetzt erzeugt. Der Klartext kann ausschließlich aus der unmittelbar folgenden CSV entnommen werden. Fortfahren?`)) {
+        return;
+    }
+
+    beginRequest();
+    try {
+        const response = await fetch("../api/manage/generate_student_codes.php", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRF-Token": state.csrfToken,
+            },
+            body: "{}",
+        });
+        if (!response.ok) {
+            let payload = {};
+            try {
+                payload = await response.json();
+            } catch (error) {
+                // Use the generic message below when a structured error is unavailable.
+            }
+            if (response.status === 401) {
+                showAdminLogin();
+            }
+            throw new Error(payload.message || "Die Zugangscodes konnten nicht erstellt werden.");
+        }
+
+        const blob = await response.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = objectUrl;
+        link.download = `student-access-codes-${new Date().toISOString().replace(/[:.]/g, "-")}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(objectUrl);
+        await loadDashboard(`${missingCodes} Zugangscodes erstellt und einmalig als CSV bereitgestellt.`);
+    } catch (error) {
+        showMessage(error.message || "Die Zugangscodes konnten nicht erstellt werden.", "danger");
+    } finally {
+        endRequest();
+    }
+}
+
+function formatCreditValue(value) {
+    return new Intl.NumberFormat("de-CH", { maximumFractionDigits: 2 }).format(Number(value));
 }
 
 function renderReport() {
@@ -921,6 +1182,16 @@ function renderReport() {
     if (dom.reportStudentFilter.value !== state.reportFilter) {
         dom.reportStudentFilter.value = state.reportFilter;
     }
+    const groups = state.report?.groups || [];
+    if (state.reportGroupFilter !== "" && !groups.some((group) => String(group.id) === state.reportGroupFilter)) {
+        state.reportGroupFilter = "";
+    }
+    dom.reportGroupFilter.innerHTML = "";
+    dom.reportGroupFilter.appendChild(optionNode("", "Alle Kurse"));
+    for (const group of groups) {
+        dom.reportGroupFilter.appendChild(optionNode(String(group.id), group.name));
+    }
+    dom.reportGroupFilter.value = state.reportGroupFilter;
     renderReportTable();
 }
 
@@ -937,7 +1208,7 @@ function renderReportTable() {
     const columns = state.report.columns || [];
     const rows = filteredSortedReportRows();
     dom.downloadReportCsvButton.disabled = columns.length === 0;
-    dom.reportSummary.textContent = `${rows.length}/${(state.report.rows || []).length} Studierende, ${Math.max(0, columns.length - 1)} Experimente`;
+    dom.reportSummary.textContent = `${rows.length}/${(state.report.rows || []).length} Studierende, ${Math.max(0, columns.length - 2)} Experimente`;
 
     if (columns.length === 0) {
         const header = document.createElement("th");
@@ -978,7 +1249,9 @@ function renderReportTable() {
         const row = document.createElement("tr");
         for (const column of columns) {
             const value = reportCellValue(reportRow, column.key);
-            const className = column.key === "studentCode" ? "text-nowrap fw-semibold" : "text-center report-value-cell";
+            const className = column.key === "studentCode"
+                ? "text-nowrap fw-semibold"
+                : (column.key === "group" ? "text-nowrap" : "text-center report-value-cell");
             appendTableCell(row, value, className);
         }
         dom.reportRows.appendChild(row);
@@ -998,6 +1271,9 @@ function appendReportEmptyRow(text, columnCount) {
 function filteredSortedReportRows() {
     const filter = state.reportFilter.trim().toLowerCase();
     const rows = [...(state.report?.rows || [])].filter((row) => {
+        if (state.reportGroupFilter !== "" && String(row.groupId || "") !== state.reportGroupFilter) {
+            return false;
+        }
         if (filter === "") {
             return true;
         }
@@ -1032,12 +1308,18 @@ function reportSortValue(row, key) {
     if (key === "studentCode") {
         return row.studentCode || "";
     }
+    if (key === "group") {
+        return row.groupName || "";
+    }
     return Number(row.values?.[key] || 0);
 }
 
 function reportCellValue(row, key) {
     if (key === "studentCode") {
         return row.studentCode || "";
+    }
+    if (key === "group") {
+        return row.groupName || "";
     }
     return String(Number(row.values?.[key] || 0));
 }
@@ -1048,7 +1330,7 @@ function setReportSort(key) {
     } else {
         state.reportSort = {
             key,
-            direction: key === "studentCode" ? "asc" : "desc",
+            direction: key === "studentCode" || key === "group" ? "asc" : "desc",
         };
     }
     renderReportTable();
@@ -2891,6 +3173,13 @@ function smallButton(label, variant) {
     button.className = `btn btn-${variant} btn-sm`;
     button.textContent = label;
     return button;
+}
+
+function optionNode(value, label) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    return option;
 }
 
 function actionRow(buttons) {

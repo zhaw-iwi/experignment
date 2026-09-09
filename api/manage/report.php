@@ -21,6 +21,11 @@ $columns = [
         'label' => 'Kürzel',
         'type' => 'student_code',
     ],
+    [
+        'key' => 'group',
+        'label' => 'Kurs',
+        'type' => 'group',
+    ],
 ];
 $experimentKeys = [];
 foreach ($experimentRows as $experiment) {
@@ -56,9 +61,10 @@ foreach ($confirmedRows as $confirmedRow) {
 }
 
 $studentRows = $pdo->query(
-    'SELECT student_email
-     FROM allowed_students
-     ORDER BY student_email ASC'
+    'SELECT a.student_email, g.id AS group_id, g.name AS group_name
+     FROM allowed_students a
+     INNER JOIN student_groups g ON g.id = a.group_id
+     ORDER BY g.name ASC, a.student_email ASC'
 )->fetchAll();
 
 $rows = [];
@@ -72,6 +78,8 @@ foreach ($studentRows as $studentRow) {
     $rows[] = [
         'studentCode' => student_code_from_email($email),
         'email' => $email,
+        'groupId' => (int) $studentRow['group_id'],
+        'groupName' => $studentRow['group_name'],
         'values' => $values,
     ];
 }
@@ -79,5 +87,9 @@ foreach ($studentRows as $studentRow) {
 json_response(200, [
     'generatedAt' => gmdate('c'),
     'columns' => $columns,
+    'groups' => array_values(array_map(
+        static fn (array $group): array => ['id' => (int) $group['id'], 'name' => $group['name']],
+        $pdo->query('SELECT id, name FROM student_groups ORDER BY name ASC, id ASC')->fetchAll()
+    )),
     'rows' => $rows,
 ]);

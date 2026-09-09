@@ -24,6 +24,7 @@ $requiredSchemaFragments = [
     "VALUES (3, 'Semester preparation schema foundation')",
     'CREATE TABLE student_groups',
     'max_credits DECIMAL(8,2) NULL',
+    'group_id BIGINT UNSIGNED NOT NULL',
     'login_code_hash VARCHAR(255) NULL',
     'login_code_version INT UNSIGNED NOT NULL DEFAULT 0',
     'CREATE TABLE authentication_throttles',

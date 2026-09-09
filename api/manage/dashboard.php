@@ -10,17 +10,39 @@ require_admin_authentication();
 $pdo = db();
 
 $allowedCount = (int) ($pdo->query('SELECT COUNT(*) AS row_count FROM allowed_students')->fetch()['row_count'] ?? 0);
+$studentGroupRows = $pdo->query(
+    'SELECT g.id, g.name, g.max_credits, g.created_at, g.updated_at,
+            COUNT(DISTINCT a.id) AS student_count
+     FROM student_groups g
+     LEFT JOIN allowed_students a ON a.group_id = g.id
+     GROUP BY g.id, g.name, g.max_credits, g.created_at, g.updated_at
+     ORDER BY g.name ASC, g.id ASC'
+)->fetchAll();
+$studentGroups = [];
+foreach ($studentGroupRows as $row) {
+    $studentGroups[] = [
+        'id' => (int) $row['id'],
+        'name' => $row['name'],
+        'maxCredits' => $row['max_credits'] === null ? null : (float) $row['max_credits'],
+        'studentCount' => (int) $row['student_count'],
+        'createdAt' => $row['created_at'],
+        'updatedAt' => $row['updated_at'],
+    ];
+}
 
 $allowedStudentRows = $pdo->query(
-    'SELECT a.student_email, a.created_at,
+    'SELECT a.student_email, a.created_at, a.login_code_hash, a.login_code_set_at,
+            g.id AS group_id, g.name AS group_name, g.max_credits AS group_max_credits,
             COUNT(DISTINCT p.id) AS participation_count,
             COUNT(DISTINCT CASE WHEN p.confirmed_at IS NOT NULL THEN p.id END) AS confirmed_count,
             COUNT(DISTINCT ee.id) AS eligibility_count
      FROM allowed_students a
+     INNER JOIN student_groups g ON g.id = a.group_id
      LEFT JOIN participations p ON p.student_email = a.student_email
      LEFT JOIN experiment_eligibilities ee ON ee.student_email = a.student_email
-     GROUP BY a.student_email, a.created_at
-     ORDER BY a.student_email ASC
+     GROUP BY a.student_email, a.created_at, a.login_code_hash, a.login_code_set_at,
+              g.id, g.name, g.max_credits
+     ORDER BY g.name ASC, a.student_email ASC
      LIMIT 2000'
 )->fetchAll();
 
@@ -28,6 +50,13 @@ $allowedStudents = [];
 foreach ($allowedStudentRows as $row) {
     $allowedStudents[] = [
         'email' => $row['student_email'],
+        'group' => [
+            'id' => (int) $row['group_id'],
+            'name' => $row['group_name'],
+            'maxCredits' => $row['group_max_credits'] === null ? null : (float) $row['group_max_credits'],
+        ],
+        'loginCodeSet' => is_string($row['login_code_hash'] ?? null) && $row['login_code_hash'] !== '',
+        'loginCodeSetAt' => $row['login_code_set_at'],
         'createdAt' => $row['created_at'],
         'participationCount' => (int) $row['participation_count'],
         'confirmedCount' => (int) ($row['confirmed_count'] ?? 0),
@@ -351,6 +380,7 @@ foreach ($participationRows as $row) {
 
 json_response(200, [
     'allowedStudentCount' => $allowedCount,
+    'studentGroups' => $studentGroups,
     'allowedStudents' => $allowedStudents,
     'experiments' => $experiments,
     'participations' => $participations,

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../api/_bootstrap.php';
 
+$generatedAccessCode = generate_student_access_code();
+
 $checks = [
     ['label' => 'valid student email', 'actual' => is_valid_student_email('user@students.zhaw.ch'), 'expected' => true],
     ['label' => 'reject non-student email', 'actual' => is_valid_student_email('user@example.com'), 'expected' => false],
@@ -27,6 +29,8 @@ $checks = [
     ['label' => 'access code rejects digits only', 'actual' => access_code_meets_requirements('12345'), 'expected' => false],
     ['label' => 'access code rejects short values', 'actual' => access_code_meets_requirements('a123'), 'expected' => false],
     ['label' => 'access code rejects punctuation', 'actual' => access_code_meets_requirements('ab12!'), 'expected' => false],
+    ['label' => 'generated access code has required complexity', 'actual' => access_code_meets_requirements($generatedAccessCode), 'expected' => true],
+    ['label' => 'generated access code is five lowercase characters', 'actual' => preg_match('/^[a-z0-9]{5}$/', $generatedAccessCode) === 1, 'expected' => true],
     [
         'label' => 'condition payload maps row',
         'actual' => condition_payload([

@@ -12,6 +12,38 @@ function access_code_meets_requirements(string $code): bool
     return preg_match('/\A(?=.*[A-Za-z])(?=.*[0-9])[A-Za-z0-9]{5,128}\z/', $code) === 1;
 }
 
+function hash_student_access_code(string $code): string
+{
+    $hash = password_hash($code, PASSWORD_BCRYPT, ['cost' => 10]);
+    if (!is_string($hash) || $hash === '') {
+        throw new RuntimeException('The student access code could not be hashed.');
+    }
+
+    return $hash;
+}
+
+function generate_student_access_code(): string
+{
+    $letters = 'abcdefghjkmnpqrstuvwxyz';
+    $digits = '23456789';
+    $alphabet = $letters . $digits;
+    $characters = [
+        $letters[random_int(0, strlen($letters) - 1)],
+        $digits[random_int(0, strlen($digits) - 1)],
+    ];
+
+    while (count($characters) < 5) {
+        $characters[] = $alphabet[random_int(0, strlen($alphabet) - 1)];
+    }
+
+    for ($index = count($characters) - 1; $index > 0; $index--) {
+        $other = random_int(0, $index);
+        [$characters[$index], $characters[$other]] = [$characters[$other], $characters[$index]];
+    }
+
+    return implode('', $characters);
+}
+
 function request_is_https(): bool
 {
     if (strtolower((string) ($_SERVER['HTTPS'] ?? '')) === 'on') {

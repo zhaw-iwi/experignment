@@ -194,18 +194,147 @@ function access_field_has_runtime_values(PDO $pdo, int $fieldId): bool
     return $manualValues > 0;
 }
 
-function imported_student_emails(string $raw): array
+function normalized_group_name(mixed $value): string
 {
-    if (preg_match_all('/[A-Z0-9._%+\-]+@students\.zhaw\.ch/i', $raw, $matches) !== 1) {
-        return [];
+    $name = clean_text($value);
+    if ($name === '' || strlen($name) > 255) {
+        fail(422, 'INVALID_GROUP_NAME', 'Bitte geben Sie einen Kursnamen mit höchstens 255 Zeichen ein.');
     }
 
-    $emails = [];
-    foreach ($matches[0] as $email) {
-        $emails[] = normalize_student_email($email);
+    return $name;
+}
+
+function require_student_group(PDO $pdo, int $groupId): array
+{
+    $statement = $pdo->prepare('SELECT * FROM student_groups WHERE id = :id LIMIT 1');
+    $statement->execute(['id' => $groupId]);
+    $group = $statement->fetch();
+    if ($group === false) {
+        fail(404, 'STUDENT_GROUP_NOT_FOUND', 'Der Kurs wurde nicht gefunden.');
     }
 
-    return array_values(array_unique($emails));
+    return $group;
+}
+
+function normalized_max_credits(mixed $value): ?float
+{
+    if ($value === null || trim((string) $value) === '') {
+        return null;
+    }
+    if (!is_numeric($value)) {
+        fail(422, 'INVALID_MAX_CREDITS', 'Die maximale Punktzahl muss eine nicht negative Zahl sein.');
+    }
+    $credits = (float) $value;
+    if (!is_finite($credits) || $credits < 0 || $credits > 999999.99) {
+        fail(422, 'INVALID_MAX_CREDITS', 'Die maximale Punktzahl muss eine nicht negative Zahl sein.');
+    }
+
+    return round($credits, 2);
+}
+
+function roster_delimiter(string $line): string
+{
+    $delimiters = ["\t", ';', ','];
+    usort($delimiters, static fn (string $left, string $right): int => substr_count($line, $right) <=> substr_count($line, $left));
+
+    return $delimiters[0];
+}
+
+function normalized_roster_header(string $value): string
+{
+    $value = preg_replace('/^\xEF\xBB\xBF/', '', trim($value)) ?? trim($value);
+    $value = strtolower($value);
+
+    return preg_replace('/[^a-z0-9]+/', '_', $value) ?? $value;
+}
+
+function imported_student_roster(string $raw): array
+{
+    $lines = preg_split('/\R/u', trim($raw));
+    $lines = is_array($lines)
+        ? array_values(array_filter($lines, static fn (string $line): bool => trim($line) !== ''))
+        : [];
+    if ($lines === []) {
+        fail(422, 'EMPTY_ROSTER', 'Bitte fügen Sie eine Studierendenliste ein.');
+    }
+
+    $delimiter = roster_delimiter($lines[0]);
+    $parsedRows = array_map(
+        static fn (string $line): array => str_getcsv($line, $delimiter, '"', ''),
+        $lines
+    );
+    $headers = array_map('normalized_roster_header', $parsedRows[0]);
+    $emailHeaders = ['email', 'e_mail', 'student_email', 'studierenden_email', 'studierenden_e_mail'];
+    $groupHeaders = ['group', 'group_name', 'course', 'course_name', 'kurs', 'gruppe'];
+    $emailIndex = null;
+    $groupIndex = null;
+    foreach ($headers as $index => $header) {
+        if (in_array($header, $emailHeaders, true)) {
+            $emailIndex = $index;
+        }
+        if (in_array($header, $groupHeaders, true)) {
+            $groupIndex = $index;
+        }
+    }
+    $hasHeader = $emailIndex !== null && $groupIndex !== null;
+    if (!$hasHeader) {
+        $emailIndex = 0;
+        $groupIndex = 1;
+    }
+
+    $roster = [];
+    foreach ($parsedRows as $index => $fields) {
+        if ($hasHeader && $index === 0) {
+            continue;
+        }
+        if (!$hasHeader) {
+            $validEmailIndices = [];
+            foreach ($fields as $fieldIndex => $field) {
+                if (is_valid_student_email(normalize_student_email((string) $field))) {
+                    $validEmailIndices[] = $fieldIndex;
+                }
+            }
+            if (count($validEmailIndices) === 1) {
+                $emailIndex = $validEmailIndices[0];
+                $groupIndex = $emailIndex === 0 ? 1 : 0;
+            }
+        }
+
+        $email = normalize_student_email((string) ($fields[$emailIndex] ?? ''));
+        $groupName = clean_text($fields[$groupIndex] ?? '');
+        if (!is_valid_student_email($email) || $groupName === '' || strlen($groupName) > 255) {
+            fail(422, 'INVALID_ROSTER_ROW', 'Die Studierendenliste enthält eine ungültige Zeile.', [
+                'line' => $index + 1,
+            ]);
+        }
+        if (isset($roster[$email]) && strcasecmp($roster[$email], $groupName) !== 0) {
+            fail(422, 'CONFLICTING_ROSTER_ROW', 'Eine E-Mail-Adresse ist mehreren Kursen zugeordnet.', [
+                'email' => $email,
+            ]);
+        }
+        $roster[$email] = $groupName;
+    }
+    if ($roster === []) {
+        fail(422, 'EMPTY_ROSTER', 'Die Studierendenliste enthält keine Datenzeilen.');
+    }
+
+    return $roster;
+}
+
+function find_or_create_student_group(PDO $pdo, string $name, int &$createdGroups): int
+{
+    $lookup = $pdo->prepare('SELECT id FROM student_groups WHERE LOWER(name) = LOWER(:name) LIMIT 1');
+    $lookup->execute(['name' => $name]);
+    $existing = $lookup->fetch();
+    if ($existing !== false) {
+        return (int) $existing['id'];
+    }
+
+    $insert = $pdo->prepare('INSERT INTO student_groups (name) VALUES (:name)');
+    $insert->execute(['name' => $name]);
+    $createdGroups++;
+
+    return (int) $pdo->lastInsertId();
 }
 
 function normalized_email_array(mixed $rawEmails): array
@@ -347,45 +476,159 @@ function upsert_eligibility(PDO $pdo, int $experimentId, string $email, ?int $co
 }
 
 try {
+    if ($action === 'save_student_group') {
+        $id = nullable_int($payload['id'] ?? null);
+        $name = normalized_group_name($payload['name'] ?? '');
+        $maxCredits = normalized_max_credits($payload['maxCredits'] ?? null);
+
+        $duplicateSql = 'SELECT id FROM student_groups WHERE LOWER(name) = LOWER(:name)';
+        $duplicateParams = ['name' => $name];
+        if ($id !== null) {
+            $duplicateSql .= ' AND id <> :excluded_id';
+            $duplicateParams['excluded_id'] = $id;
+        }
+        $duplicate = $pdo->prepare($duplicateSql . ' LIMIT 1');
+        $duplicate->execute($duplicateParams);
+        if ($duplicate->fetch() !== false) {
+            fail(409, 'STUDENT_GROUP_NAME_EXISTS', 'Ein Kurs mit diesem Namen ist bereits vorhanden.');
+        }
+
+        if ($id === null) {
+            $statement = $pdo->prepare(
+                'INSERT INTO student_groups (name, max_credits)
+                 VALUES (:name, :max_credits)'
+            );
+            $statement->execute(['name' => $name, 'max_credits' => $maxCredits]);
+            $id = (int) $pdo->lastInsertId();
+            json_response(201, ['id' => $id, 'name' => $name, 'maxCredits' => $maxCredits]);
+        }
+
+        require_student_group($pdo, $id);
+        $statement = $pdo->prepare(
+            'UPDATE student_groups
+             SET name = :name,
+                 max_credits = :max_credits
+             WHERE id = :id'
+        );
+        $statement->execute(['id' => $id, 'name' => $name, 'max_credits' => $maxCredits]);
+        json_response(200, ['id' => $id, 'name' => $name, 'maxCredits' => $maxCredits]);
+    }
+
+    if ($action === 'delete_student_group') {
+        $groupId = required_int($payload['groupId'] ?? null, 'INVALID_STUDENT_GROUP', 'Bitte wählen Sie einen Kurs aus.');
+        require_student_group($pdo, $groupId);
+        $studentCount = count_rows(
+            $pdo,
+            'SELECT COUNT(*) AS row_count FROM allowed_students WHERE group_id = :group_id',
+            ['group_id' => $groupId]
+        );
+        $experimentCount = count_rows(
+            $pdo,
+            'SELECT COUNT(*) AS row_count FROM experiment_group_eligibilities WHERE group_id = :group_id',
+            ['group_id' => $groupId]
+        );
+        if ($studentCount > 0 || $experimentCount > 0) {
+            fail(409, 'STUDENT_GROUP_IN_USE', 'Der Kurs wird noch von Studierenden oder Experimenten verwendet.');
+        }
+
+        $delete = $pdo->prepare('DELETE FROM student_groups WHERE id = :id');
+        $delete->execute(['id' => $groupId]);
+        json_response(200, ['groupId' => $groupId, 'deleted' => true]);
+    }
+
     if ($action === 'add_allowed_student') {
         $email = normalize_student_email((string) ($payload['email'] ?? ''));
+        $groupId = required_int($payload['groupId'] ?? null, 'INVALID_STUDENT_GROUP', 'Bitte wählen Sie einen Kurs aus.');
         if (!is_valid_student_email($email)) {
             fail(422, 'INVALID_EMAIL', 'Bitte geben Sie eine gültige Studierenden-E-Mail-Adresse ein.');
         }
+        require_student_group($pdo, $groupId);
 
         if (is_allowed_student_email($pdo, $email)) {
-            json_response(200, ['created' => false, 'email' => $email]);
+            $update = $pdo->prepare('UPDATE allowed_students SET group_id = :group_id WHERE student_email = :student_email');
+            $update->execute(['group_id' => $groupId, 'student_email' => $email]);
+            json_response(200, ['created' => false, 'email' => $email, 'groupId' => $groupId]);
         }
 
-        $insert = $pdo->prepare('INSERT INTO allowed_students (student_email) VALUES (:student_email)');
-        $insert->execute(['student_email' => $email]);
-        json_response(201, ['created' => true, 'email' => $email]);
+        $insert = $pdo->prepare(
+            'INSERT INTO allowed_students (student_email, group_id)
+             VALUES (:student_email, :group_id)'
+        );
+        $insert->execute(['student_email' => $email, 'group_id' => $groupId]);
+        json_response(201, ['created' => true, 'email' => $email, 'groupId' => $groupId]);
     }
 
-    if ($action === 'bulk_add_allowed_students') {
-        $rawEmails = (string) ($payload['emails'] ?? '');
-        $emails = imported_student_emails($rawEmails);
-        if ($emails === []) {
-            fail(422, 'NO_VALID_EMAILS', 'Es wurden keine gültigen Studierenden-E-Mail-Adressen gefunden.');
-        }
-
-        $insert = $pdo->prepare('INSERT INTO allowed_students (student_email) VALUES (:student_email)');
+    if ($action === 'import_student_roster') {
+        $roster = imported_student_roster((string) ($payload['roster'] ?? ''));
+        $pdo->beginTransaction();
         $created = 0;
-        $skipped = 0;
-        foreach ($emails as $email) {
-            if (is_allowed_student_email($pdo, $email)) {
-                $skipped++;
+        $updated = 0;
+        $unchanged = 0;
+        $createdGroups = 0;
+        $groupIds = [];
+        $lookup = $pdo->prepare('SELECT id, group_id FROM allowed_students WHERE student_email = :student_email LIMIT 1');
+        $insert = $pdo->prepare(
+            'INSERT INTO allowed_students (student_email, group_id)
+             VALUES (:student_email, :group_id)'
+        );
+        $update = $pdo->prepare('UPDATE allowed_students SET group_id = :group_id WHERE id = :id');
+
+        foreach ($roster as $email => $groupName) {
+            $groupKey = strtolower($groupName);
+            if (!isset($groupIds[$groupKey])) {
+                $groupIds[$groupKey] = find_or_create_student_group($pdo, $groupName, $createdGroups);
+            }
+            $groupId = $groupIds[$groupKey];
+            $lookup->execute(['student_email' => $email]);
+            $student = $lookup->fetch();
+            if ($student === false) {
+                $insert->execute(['student_email' => $email, 'group_id' => $groupId]);
+                $created++;
                 continue;
             }
-            $insert->execute(['student_email' => $email]);
-            $created++;
+            if ((int) $student['group_id'] === $groupId) {
+                $unchanged++;
+                continue;
+            }
+            $update->execute(['group_id' => $groupId, 'id' => (int) $student['id']]);
+            $updated++;
         }
+        $pdo->commit();
 
         json_response(201, [
             'created' => $created,
-            'skipped' => $skipped,
-            'totalValid' => count($emails),
+            'updated' => $updated,
+            'unchanged' => $unchanged,
+            'createdGroups' => $createdGroups,
+            'totalValid' => count($roster),
         ]);
+    }
+
+    if ($action === 'set_student_login_code') {
+        $email = normalize_student_email((string) ($payload['email'] ?? ''));
+        $accessCode = trim((string) ($payload['accessCode'] ?? ''));
+        if (!is_valid_student_email($email)) {
+            fail(422, 'INVALID_EMAIL', 'Bitte geben Sie eine gültige Studierenden-E-Mail-Adresse ein.');
+        }
+        if (!access_code_meets_requirements($accessCode)) {
+            fail(422, 'INVALID_ACCESS_CODE', 'Der Zugangscode muss aus 5 bis 128 Buchstaben und Ziffern bestehen und mindestens einen Buchstaben und eine Ziffer enthalten.');
+        }
+        if (!is_allowed_student_email($pdo, $email)) {
+            fail(404, 'ALLOWED_STUDENT_NOT_FOUND', 'Diese E-Mail-Adresse ist nicht in der Zulassungsliste.');
+        }
+
+        $update = $pdo->prepare(
+            'UPDATE allowed_students
+             SET login_code_hash = :login_code_hash,
+                 login_code_version = login_code_version + 1,
+                 login_code_set_at = CURRENT_TIMESTAMP
+             WHERE student_email = :student_email'
+        );
+        $update->execute([
+            'login_code_hash' => hash_student_access_code($accessCode),
+            'student_email' => $email,
+        ]);
+        json_response(200, ['email' => $email, 'loginCodeSet' => true]);
     }
 
     if ($action === 'delete_allowed_student') {

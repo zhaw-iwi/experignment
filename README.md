@@ -10,6 +10,8 @@ PHP/MySQL web app for assigning experiment access information to ZHAW students a
 - `api/`: student and staff JSON endpoints
 - `config/config.php`: deployment database configuration
 - `scripts/generate_admin_access_code.php`: one-time administrator code/hash generator
+- `scripts/deployment_preflight.php`: production configuration and clean-database verifier
+- `docs/PRODUCTION_CUTOVER.md`: phpMyAdmin deployment and semester activation checklist
 - `database/schema.sql`: V3 schema
 - `database/seed.sql`: intentionally empty production seed
 - `database/seed_examples.sql`: optional representative demo experiments and access data
@@ -37,6 +39,8 @@ Use `database/reset_all_data.sql` for a semester rollover that should also remov
 
 Use `database/drop_tables.sql` only when you want to remove the full application schema before rebuilding it from `schema.sql`.
 
+For the production sequence, rollback precautions, and acceptance checks, follow [docs/PRODUCTION_CUTOVER.md](docs/PRODUCTION_CUTOVER.md). A separate new database is preferred over modifying the previous-semester database in place.
+
 ## Configuration
 
 Copy `.env.example` to `.env` and configure the database there. Process environment variables take precedence over values loaded from `.env`.
@@ -50,6 +54,14 @@ php scripts/generate_admin_access_code.php
 ```
 
 Store the displayed `ADMIN_ACCESS_CODE_HASH` line in the private `.env` file and deliver the plaintext code through an appropriate separate channel. The helper displays the plaintext only once. Session names, idle timeouts, and the secure-cookie setting are also configurable through `.env.example`; production must use HTTPS with `APP_SESSION_SECURE=true`.
+
+After importing the clean production schema and configuring `.env`, run:
+
+```bash
+php scripts/deployment_preflight.php --expect-empty
+```
+
+The preflight verifies production authentication/session settings, database connectivity, schema version and key columns, InnoDB/UTF-8 configuration, an empty semester state, and runtime database permissions. Its permission probe is fully rolled back.
 
 The V3 runtime uses course groups, student login-code metadata, authentication throttling, experiment schedules/capacities/rewards, group eligibility, explicitly undated slots, reward snapshots, and audit events.
 

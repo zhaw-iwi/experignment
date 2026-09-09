@@ -204,6 +204,8 @@ The student UI should:
 - `.env.example`: deployment configuration template; the real `.env` is ignored.
 - `config/config.php`: environment-backed deployment configuration plus `EXPERIMENT_DB_DSN` test override.
 - `scripts/generate_admin_access_code.php`: one-time administrator access-code and hash generator.
+- `scripts/deployment_preflight.php`: production configuration, schema, empty-state, and rolled-back runtime-permission verifier.
+- `docs/PRODUCTION_CUTOVER.md`: canonical phpMyAdmin deployment, semester activation, acceptance, and rollback checklist.
 - `api/_auth.php`: shared secure-session, authorization, CSRF, access-code validation, and throttling helpers.
 - `api/student_login.php`, `api/student_session.php`, `api/student_logout.php`: student authentication lifecycle.
 - `api/manage/login.php`, `api/manage/session.php`, `api/manage/logout.php`: administrator authentication lifecycle.
@@ -224,6 +226,8 @@ The student UI should:
 Deploy the V3 schema into an empty database. Previous-semester records will not be migrated into the prepared deployment.
 
 Database deployment settings are loaded from process environment variables or the ignored root `.env` file. `EXPERIMENT_DB_DSN` remains available as an optional override, mostly for tests. The database password that previously appeared in tracked configuration must be rotated before the next deployment.
+
+The recommended cutover provisions a separate clean database and dedicated runtime account, imports `schema.sql` and the intentionally empty `seed.sql` in phpMyAdmin, then runs `php scripts/deployment_preflight.php --expect-empty`. The in-place fallback requires a verified backup followed by `drop_tables.sql` and a clean schema import; `reset_all_data.sql` is for an already-V3 schema, not V2 migration.
 
 ## Tests And Local Limitations
 
@@ -247,8 +251,13 @@ On the current development machine as last observed:
 - `js_regression_test.php` passed.
 - `api_smoke_test.php` passed after enabling `pdo_sqlite` in the active PHP `php.ini`.
 - `node --check manage/manage.js` passed.
+- Clean `schema.sql` plus `seed.sql` imports passed on MariaDB 10.6.28, MariaDB 11.4.13, and MySQL 8.4.10.
+- Example-seed import followed by `reset_all_data.sql`, and full `drop_tables.sql` followed by rebuild, both passed.
+- The deployment preflight passed against a dedicated MySQL account with only `SELECT`, `INSERT`, `UPDATE`, and `DELETE` privileges.
+- A MySQL-backed HTTP acceptance flow passed administrator/student authentication, code generation, experiment opening, private-note isolation, participant-limit enforcement, partial reward confirmation, reports, and audit-code secrecy.
 
 ## Known Deferred Work
 
 - Complete the clean MySQL/MariaDB production cutover and browser QA against the deployed environment.
+- Production access is not present in the repository: there is no deployment workflow, private `.env`, or production database/file-host credential in this workspace.
 - More granular automated tests for management actions.

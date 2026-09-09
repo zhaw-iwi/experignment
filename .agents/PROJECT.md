@@ -25,7 +25,8 @@ Experiment Assignment App is a PHP/MySQL application for managing student experi
 - [x] 2026-09-09: V3 student and administrator authentication
 - [x] 2026-09-09: V3 course groups, roster import, and login-code lifecycle
 - [x] 2026-09-09: V3 experiment audiences, capacity, rewards, readiness, and completeness
-- [ ] V3 operational QA and clean production cutover
+- [x] 2026-09-09: V3 operational QA and cutover tooling
+- [ ] Clean production deployment and semester activation
 
 ## 2026-05-11: V2 Greenfield Multi-Experiment Implementation
 
@@ -993,3 +994,67 @@ Observed on 2026-09-09:
 
 - Verify a clean `schema.sql` import against MySQL/MariaDB and run the complete HTTP/browser acceptance checklist.
 - Prepare the production `.env`, rotate the historically exposed database password, generate a fresh administrator code hash, deploy the application, and import the new grouped roster.
+
+## 2026-09-09: V3 Operational QA And Cutover Tooling
+
+### Goal
+
+Prove the clean-install, reset, rebuild, configuration, permission, and critical HTTP paths on production database engines, and provide a repeatable phpMyAdmin cutover and rollback procedure.
+
+### What Changed
+
+- Added `scripts/deployment_preflight.php` with `--expect-empty` support.
+- Made the preflight verify the administrator hash, secure cookies, positive session timeouts, timezone, MySQL driver and connection, non-root account recommendation, UTF-8 database default, all 20 V3 tables and key columns, InnoDB engines, schema version 3, empty semester state, and runtime CRUD permissions.
+- Made the runtime permission probe run inside and roll back a database transaction so it leaves the clean database empty.
+- Added `docs/PRODUCTION_CUTOVER.md` with backup, credential rotation, separate-database and in-place phpMyAdmin paths, configuration, preflight, roster/code activation, acceptance, sign-off, and rollback steps.
+- Extended Apache HTTP denial rules to cover `scripts/` as well as configuration, SQL, tests, temporary data, hidden agent metadata, and Git metadata.
+- Linked the cutover guide and preflight from README and updated canonical context documentation.
+- Validated clean `schema.sql` plus intentionally empty `seed.sql` imports on MariaDB 10.6.28, MariaDB 11.4.13, and MySQL 8.4.10.
+- Validated example-data import followed by `reset_all_data.sql` on MariaDB 10.6 and complete `drop_tables.sql` followed by schema rebuild on MySQL 8.4.
+- Validated the preflight with a dedicated MySQL runtime account granted only `SELECT`, `INSERT`, `UPDATE`, and `DELETE`; it completed with 12 passes, no warnings, and no errors.
+- Ran a real-MySQL HTTP acceptance flow covering version bootstrap, unauthenticated management rejection, administrator login, course/student creation, missing-only student-code exports, student login, experiment readiness/opening, private-note isolation, capacity rejection, partial capped reward, report totals, audit events, and plaintext-code absence from audit payloads.
+- Removed all isolated Docker QA containers and their temporary data after verification.
+
+### How To Run
+
+1. Follow `docs/PRODUCTION_CUTOVER.md` in order.
+2. Configure the private production `.env` and import `database/schema.sql` into an empty database through phpMyAdmin.
+3. Optionally import the intentionally empty `database/seed.sql`.
+4. Run `php scripts/deployment_preflight.php --expect-empty` before importing a roster.
+5. Import courses/students and activate experiments only after the acceptance checklist passes.
+
+### How To Test
+
+- `php -l scripts/deployment_preflight.php`
+- `php scripts/deployment_preflight.php --help`
+- `Get-ChildItem -Recurse -Filter *.php | ForEach-Object { php -l $_.FullName }`
+- `node --check assets/app.js`
+- `node --check manage/manage.js`
+- `php tests/config_test.php`
+- `php tests/schema_test.php`
+- `php tests/validation_test.php`
+- `php tests/text_quality_test.php`
+- `php tests/js_regression_test.php`
+- `php tests/api_smoke_test.php`
+
+Observed on 2026-09-09:
+
+- The full syntax and six-script automated suite passed.
+- Clean and empty import checks passed on MariaDB 10.6.28, MariaDB 11.4.13, and MySQL 8.4.10.
+- The MariaDB example-seed/full-reset and MySQL drop/rebuild checks passed.
+- The least-privilege production-style preflight passed with 12 checks, zero warnings, and zero errors.
+- The MySQL-backed HTTP acceptance flow passed with the final partial reward equal to the course maximum and all expected audit event categories present.
+- The invalid/missing administrator-hash path returned a nonzero preflight result as intended.
+
+### Known Issues And Decisions
+
+- A separate V3 database is the preferred deployment because rollback requires only restoring files/configuration and switching the database target.
+- The runtime application account needs CRUD permissions, not schema-creation privileges. Schema import remains an administrative/phpMyAdmin action.
+- The existing historical/live dumps remain ignored and unchanged; they are not migration inputs.
+- `.htaccess` protection must be checked on the actual host because PHP's local development server does not process Apache rules.
+- The production cutover itself is not complete. This workspace has no production `.env`, hosting workflow, or production database/file-host access, so making the database and application online requires external deployment access.
+
+### Next Steps
+
+- Obtain production database/phpMyAdmin and file-deployment access or a documented deployment command.
+- Rotate the historical database credential, provision the dedicated V3 database account, configure the private `.env`, deploy this revision, and follow the production cutover checklist through sign-off.

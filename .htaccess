@@ -2,11 +2,11 @@ Options -Indexes
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
-    RewriteRule ^(?:config|database|tests|temp|\.agents|\.git)(?:/|$) - [F,L,NC]
+    RewriteRule ^(?:config|database|scripts|tests|temp|\.agents|\.git)(?:/|$) - [F,L,NC]
 </IfModule>
 
 <IfModule mod_alias.c>
-    RedirectMatch 403 "(?i)^/(?:config|database|tests|temp|\.agents|\.git)(?:/|$)"
+    RedirectMatch 403 "(?i)^/(?:config|database|scripts|tests|temp|\.agents|\.git)(?:/|$)"
 </IfModule>
 
 <FilesMatch "^\.">

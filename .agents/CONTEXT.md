@@ -11,7 +11,7 @@ The app has two browser UIs:
 - `index.html`: student-facing page.
 - `manage/index.html`: staff-facing management page.
 
-The deployed behavior began as V2, a greenfield continuation of an older one-experiment app. A V3 semester-preparation program is now in progress. The schema/configuration and authentication milestones are complete; roster and experiment-operation milestones activate the remaining V3 behavior. Backward compatibility with the old V1 schema is intentionally not preserved.
+The deployed behavior began as V2, a greenfield continuation of an older one-experiment app. The V3 semester-preparation application behavior is complete and its clean production cutover is being prepared. Backward compatibility with the old V1 schema is intentionally not preserved.
 
 ## Current Product Decisions
 
@@ -23,9 +23,10 @@ The deployed behavior began as V2, a greenfield continuation of an older one-exp
 - The global roster is `allowed_students`; every student row has exactly one non-null `student_groups` membership.
 - Course groups can be created explicitly or automatically by grouped roster import. Their point maximum may remain unset during initial import but must be completed before semester opening.
 - Grouped roster imports are repeatable upserts: new students are added, existing course memberships are updated, and login-code hashes are preserved.
-- Individual experiments can be visible to all globally allowed students or only to explicitly eligible students.
+- A student's course membership cannot be changed after the first participation because that membership determines historical credit-cap ownership and experiment audience.
+- Experiment course audience and individual eligibility are independent, intersecting gates. An empty course mapping means all courses; `all_allowed` includes every student in those courses, while `selected` additionally requires an `experiment_eligibilities` row.
 - Students can claim at most one participation per visible experiment.
-- Closed experiments remain visible to eligible students, but the action button is disabled and access data is not shown.
+- Manual open state, `opens_at`, and `closes_at` jointly control current availability. Closed, scheduled, expired, and full experiments remain visible to eligible students, but the action button is disabled and unclaimed access data is not shown.
 - `Zugewiesen` means the student has claimed or received access information for that experiment.
 - `Angerechnet` means staff confirmed the participation for grading.
 - Claiming access does not automatically mean `Angerechnet`.
@@ -43,8 +44,12 @@ The deployed behavior began as V2, a greenfield continuation of an older one-exp
 - Administrators can manually set or rotate one student's code; this increments the code version and immediately revokes that student's session.
 - Regenerating a student login code must invalidate existing student sessions.
 - The administrator UI will use a hashed access code configured through `.env` and a protected server-side session.
-- The V3 operations roadmap includes ready-to-open validation, completeness indicators, explicit undated slots, and an audit log.
-- The V3 schema foundation is additive. Fields and tables introduced by the first milestone are not public behavior until their corresponding application milestone is complete.
+- Staff cannot manually open an experiment while a required readiness indicator is incomplete. Course audience, course maxima, student codes, condition setup/assignment, access-data completeness, and required slot capacity are blocking checks; no schedule and no participant maximum are warnings.
+- Confirming a participation stores the amount actually credited as a snapshot. It is the lesser of the experiment reward and the student's remaining course allowance, including zero after the cap; removing confirmation clears the snapshot.
+- Participation remains possible after the course point maximum has been reached.
+- Explicitly undated time slots have no start/end values and are the supported `Kein passender Termin` option.
+- The audit log records successful authentication, student participation, code provisioning, and management actions without storing plaintext access codes.
+- `APP_TIMEZONE` controls schedule parsing and comparison and defaults to `Europe/Zurich`.
 
 ## Experiment And Condition Semantics
 
@@ -107,7 +112,7 @@ Typical examples:
 
 Slot-based experiments set `experiments.requires_time_slot = 1`.
 
-- Staff creates `time_slots` with labels, optional start/end datetimes, active state, sort order, and capacity.
+- Staff creates `time_slots` with labels, active state, sort order, capacity, and either a valid start/end pair or an explicit undated marker.
 - The management UI shows time-slot setup only for saved experiments with `requires_time_slot = 1`.
 - A student chooses exactly one slot.
 - Capacity is enforced server-side.
@@ -116,7 +121,7 @@ Slot-based experiments set `experiments.requires_time_slot = 1`.
 
 ## Randomization Semantics
 
-Randomization assigns all globally allowed students to conditions for one experiment.
+Randomization assigns all students in the experiment's course audience to conditions for one experiment.
 
 - It uses a staff-provided seed.
 - Assignment order is deterministic by hashing `seed|email`.
@@ -137,6 +142,8 @@ The management UI should support:
 - Delete setup experiments when needed.
 - Open and close experiments.
 - Configure eligibility mode, condition mode, slot requirement, and sort order.
+- Configure course audience, public availability window, participant maximum, numeric reward, and private notes.
+- Review readiness indicators and open an experiment only after blocking setup issues are resolved.
 - Add and rename conditions.
 - Delete unused conditions.
 - Define access fields.
@@ -147,6 +154,7 @@ The management UI should support:
 - View and remove experiment-specific eligibility rows.
 - Randomize all globally allowed students across conditions.
 - Configure time slots and capacities.
+- Provide explicit undated time-slot alternatives where needed.
 - View slot choices grouped by slot.
 - Delete unused time slots.
 - View participations, selected slots, compact access values, and appointment text.
@@ -158,13 +166,14 @@ The management UI should support:
 - Sort approval-report columns, filter the report by student `Kürzel` or course, and download the displayed report as CSV.
 - Enter appointment text per participation.
 - Toggle `Angerechnet`.
+- Review credited rewards, course totals, and recent audit events.
 - Reset participations and release access data when desired.
 
 The current V2 staff API is intentionally centralized in `api/manage/actions.php`, with dashboard data from `api/manage/dashboard.php`. The staff UI is organized into an experiment overview, a dedicated global allowlist view, an experiment editing view, and an experiment-specific grading view. Experiment states are shown in a top workflow strip. In the overview, clicking an experiment row opens its editing view. The global allowlist is reached from the editable student-count badge in the navbar instead of being part of the experiment hierarchy, and the navbar brand returns to the experiment overview.
 
 The grading view builds its table from the selected experiment configuration. It always shows who opened access information and when (`Zugang geöffnet`, backed by `participations.assigned_at`), and only shows condition, slot, compact access-field, and appointment columns when those features are configured for the experiment. Link access fields are shown as buttons labeled with the field name instead of raw URLs. Staff can filter and sort each data column in the grading table. The bulk-grading modal uses the same column dropdown presentation as an additive selection builder: searches and value checks add matching rows to the checked set, while row checkboxes remove individual selections. Bulk actions apply `Anrechnen`, `Anrechnung entfernen`, or `Reset` to explicit participation IDs. Bulk reset releases access pool rows and deletes related runtime data inside one transaction. A separate no-shows card lists registered or eligible students who have not clicked `Teilnehmen` and therefore have no participation row yet.
 
-The Reports view is cross-experiment and read-only. It derives each student `Kürzel` from the local part of `allowed_students.student_email`, includes the student's course, includes every globally allowed student as one row, and includes every experiment as a `0`/`1` column. A value is `1` only when the matching participation has `confirmed_at IS NOT NULL`; opening access without staff confirmation remains `0`. The visible rows can be filtered by `Kürzel` and course. The CSV download is generated from the currently displayed filtered/sorted table.
+The Reports view is cross-experiment and read-only. It derives each student `Kürzel` from the local part of `allowed_students.student_email`, includes the student's course, credited total, and course maximum, includes every globally allowed student as one row, and includes every experiment as a `0`/`1` column. A value is `1` only when the matching participation has `confirmed_at IS NOT NULL`; opening access without staff confirmation remains `0`. The visible rows can be filtered by `Kürzel` and course. The CSV download is generated from the currently displayed filtered/sorted table.
 
 ## Student UI Responsibilities
 
@@ -176,6 +185,7 @@ The student UI should:
 - Load overview data dynamically from `api/student_overview.php`.
 - Show visible experiments with columns for experiment, condition, assignment, assignment date, and `Angerechnet`.
 - Show disabled buttons for closed experiments.
+- Show course credit progress, experiment rewards, effective availability, and full-capacity state.
 - Let students choose a condition only when the experiment uses `student_choice`.
 - Claim/retrieve access through `api/claim.php`.
 - Show access fields generically based on API payloads.
@@ -227,7 +237,7 @@ Run:
 - `php tests/api_smoke_test.php`
 
 `js_regression_test.php` currently catches management-client regressions that JavaScript syntax checking would miss, including pool-rendering references to grading-only variables.
-The API smoke test uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable. When SQLite support is available, it covers student claim/retrieval, slot choice capacity, management setup, allowlist removal guards, participant selection and clearing, condition assignment and clearing, bundled pool import, staff-entered access values, confirmation, appointment retrieval, participation reset, randomization, and the cross-experiment approval report.
+The API smoke test uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable. When SQLite support is available, it covers authentication, grouped rosters and access-code provisioning, course audiences, availability schedules, participant limits, readiness, private notes, undated slots, student claim/retrieval, slot capacity, management setup, eligibility guards, condition assignment, bundled pool import, staff-entered access values, capped reward confirmation, audit events, participation reset, randomization, and the cross-experiment approval report.
 
 On the current development machine as last observed:
 
@@ -240,6 +250,5 @@ On the current development machine as last observed:
 
 ## Known Deferred Work
 
-- Complete the V3 authentication, course-group roster, student-code, experiment-audience, capacity, reward, readiness, completeness, scheduling, and audit behavior milestones.
-- Browser/manual QA against a MySQL-backed local or deployed environment.
+- Complete the clean MySQL/MariaDB production cutover and browser QA against the deployed environment.
 - More granular automated tests for management actions.

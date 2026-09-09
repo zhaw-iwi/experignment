@@ -54,6 +54,7 @@ const dom = {
     gradingView: document.getElementById("gradingView"),
     overviewExperimentCard: document.getElementById("overviewExperimentCard"),
     experimentList: document.getElementById("experimentList"),
+    auditEventList: document.getElementById("auditEventList"),
     newExperimentButton: document.getElementById("newExperimentButton"),
     allowedStudentsCard: document.getElementById("allowedStudentsCard"),
     studentGroupForm: document.getElementById("studentGroupForm"),
@@ -71,11 +72,21 @@ const dom = {
     experimentId: document.getElementById("experimentId"),
     experimentName: document.getElementById("experimentName"),
     experimentDescription: document.getElementById("experimentDescription"),
+    experimentAdminNotes: document.getElementById("experimentAdminNotes"),
+    experimentOpensAt: document.getElementById("experimentOpensAt"),
+    experimentClosesAt: document.getElementById("experimentClosesAt"),
+    experimentMaxParticipants: document.getElementById("experimentMaxParticipants"),
+    experimentRewardCredits: document.getElementById("experimentRewardCredits"),
+    experimentAudienceMode: document.getElementById("experimentAudienceMode"),
+    experimentGroupOptions: document.getElementById("experimentGroupOptions"),
     eligibilityMode: document.getElementById("eligibilityMode"),
     conditionMode: document.getElementById("conditionMode"),
     sortOrder: document.getElementById("sortOrder"),
     isOpen: document.getElementById("isOpen"),
     requiresTimeSlot: document.getElementById("requiresTimeSlot"),
+    readinessPanel: document.getElementById("readinessPanel"),
+    readinessStatus: document.getElementById("readinessStatus"),
+    readinessIndicatorList: document.getElementById("readinessIndicatorList"),
     conditionPanel: document.getElementById("conditionPanel"),
     conditionList: document.getElementById("conditionList"),
     conditionFormTitle: document.getElementById("conditionFormTitle"),
@@ -180,6 +191,7 @@ const dom = {
     slotEndsAt: document.getElementById("slotEndsAt"),
     slotSortOrder: document.getElementById("slotSortOrder"),
     slotIsActive: document.getElementById("slotIsActive"),
+    slotIsUndated: document.getElementById("slotIsUndated"),
     slotChoiceList: document.getElementById("slotChoiceList"),
     gradingTitle: document.getElementById("gradingTitle"),
     bulkGradingButton: document.getElementById("bulkGradingButton"),
@@ -266,6 +278,13 @@ function wireEvents() {
             id: valueOrNull(dom.experimentId.value),
             name: dom.experimentName.value,
             description: dom.experimentDescription.value,
+            adminNotes: dom.experimentAdminNotes.value,
+            opensAt: localDateTimeToSql(dom.experimentOpensAt.value),
+            closesAt: localDateTimeToSql(dom.experimentClosesAt.value),
+            maxParticipants: valueOrNull(dom.experimentMaxParticipants.value),
+            rewardCredits: dom.experimentRewardCredits.value,
+            audienceMode: dom.experimentAudienceMode.value,
+            groupIds: selectedExperimentGroupIds(),
             eligibilityMode: dom.eligibilityMode.value,
             conditionMode: dom.conditionMode.value,
             sortOrder: dom.sortOrder.value,
@@ -317,6 +336,10 @@ function wireEvents() {
         });
         clearStudentGroupForm();
         await loadDashboard(editing ? "Kurs aktualisiert." : "Kurs erstellt.");
+    });
+
+    dom.experimentAudienceMode.addEventListener("change", () => {
+        renderExperimentGroupOptions();
     });
     dom.cancelStudentGroupButton.addEventListener("click", () => {
         clearStudentGroupForm();
@@ -483,11 +506,15 @@ function wireEvents() {
             capacity: dom.slotCapacity.value,
             startsAt: localDateTimeToSql(dom.slotStartsAt.value),
             endsAt: localDateTimeToSql(dom.slotEndsAt.value),
+            isUndated: dom.slotIsUndated.checked,
             sortOrder: dom.slotSortOrder.value,
             isActive: dom.slotIsActive.checked,
         });
         clearSlotForm();
         await loadDashboard("Zeitslot gespeichert.");
+    });
+    dom.slotIsUndated.addEventListener("change", () => {
+        updateSlotDateControls();
     });
 }
 
@@ -622,6 +649,7 @@ function renderAll() {
     renderPageTitle();
     renderPhaseStepper();
     renderExperimentList();
+    renderAuditLog();
     renderStudentGroupList();
     renderRosterControls();
     renderAllowedStudentList();
@@ -862,13 +890,22 @@ function renderExperimentList() {
         const strong = document.createElement("strong");
         strong.textContent = experiment.name;
         const openBadge = document.createElement("span");
-        openBadge.className = `badge ${experiment.isOpen ? "text-bg-success" : "text-bg-secondary"}`;
-        openBadge.textContent = experiment.isOpen ? "offen" : "geschlossen";
-        title.append(strong, openBadge);
+        openBadge.className = `badge ${experiment.isAvailableNow ? "text-bg-success" : "text-bg-secondary"}`;
+        openBadge.textContent = experiment.isAvailableNow ? "verfügbar" : (experiment.isOpen ? "geplant" : "geschlossen");
+        const readyBadge = document.createElement("span");
+        readyBadge.className = `badge ${experiment.readiness?.ready ? "text-bg-primary" : "text-bg-warning"}`;
+        readyBadge.textContent = experiment.readiness?.ready ? "bereit" : "unvollständig";
+        title.append(strong, openBadge, readyBadge);
 
         const meta = document.createElement("div");
         meta.className = "small text-secondary mt-1";
-        meta.textContent = `${experiment.counts.participations} Zuweisungen, ${experiment.counts.confirmed} angerechnet`;
+        const audience = experiment.audienceMode === "all_groups"
+            ? "alle Kurse"
+            : (experiment.groups || []).map((group) => group.name).join(", ");
+        const participationSummary = experiment.maxParticipants === null
+            ? `${experiment.counts.participations} Teilnahmen (unbegrenzt)`
+            : `${experiment.counts.participations}/${experiment.maxParticipants} Teilnahmen`;
+        meta.textContent = `${audience} · ${formatCreditValue(experiment.rewardCredits)} Punkte · ${participationSummary} · ${experiment.counts.confirmed} angerechnet`;
         text.append(title, meta);
 
         const dropdown = experimentActionDropdown(experiment);
@@ -978,6 +1015,44 @@ function renderStudentGroupList() {
     }
 }
 
+function renderAuditLog() {
+    dom.auditEventList.innerHTML = "";
+    const events = state.dashboard?.auditEvents || [];
+    if (events.length === 0) {
+        dom.auditEventList.appendChild(emptyListGroupItem("Noch keine Audit-Ereignisse vorhanden."));
+        return;
+    }
+
+    for (const event of events) {
+        const entity = [event.entityType, event.entityIdentifier].filter(Boolean).join(": ");
+        const actor = event.actorIdentifier || event.actorType;
+        dom.auditEventList.appendChild(listGroupSummaryItem(
+            auditActionLabel(event.action),
+            `${formatDateTime(event.createdAt)} · ${actor}${entity ? ` · ${entity}` : ""}`
+        ));
+    }
+}
+
+function auditActionLabel(action) {
+    const labels = {
+        admin_login: "Admin-Anmeldung",
+        admin_logout: "Admin-Abmeldung",
+        student_login: "Studierenden-Anmeldung",
+        student_logout: "Studierenden-Abmeldung",
+        participation_claimed: "Experimentteilnahme gestartet",
+        participation_retrieved: "Zugangsinformationen erneut geöffnet",
+        time_slot_chosen: "Zeitslot gewählt",
+        generate_student_access_codes: "Studierenden-Codes erzeugt",
+        save_experiment: "Experiment gespeichert",
+        save_student_group: "Kurs gespeichert",
+        import_student_roster: "Studierendenliste importiert",
+        set_student_login_code: "Studierenden-Code geändert",
+        toggle_confirmation: "Anrechnung geändert",
+        bulk_grading_operation: "Sammelaktion ausgeführt",
+    };
+    return labels[action] || action.replaceAll("_", " ");
+}
+
 function clearStudentGroupForm() {
     dom.studentGroupId.value = "";
     dom.studentGroupName.value = "";
@@ -1067,6 +1142,10 @@ function renderAllowedStudentList() {
             groupSelect.appendChild(optionNode(String(group.id), group.name));
         }
         groupSelect.value = String(student.group?.id || "");
+        groupSelect.disabled = student.participationCount > 0;
+        groupSelect.title = student.participationCount > 0
+            ? "Der Kurs ist nach der ersten Experimentzuweisung gesperrt."
+            : "Kurszuordnung ändern";
         groupSelect.addEventListener("change", async () => {
             await postAction("add_allowed_student", {
                 email: student.email,
@@ -1208,7 +1287,7 @@ function renderReportTable() {
     const columns = state.report.columns || [];
     const rows = filteredSortedReportRows();
     dom.downloadReportCsvButton.disabled = columns.length === 0;
-    dom.reportSummary.textContent = `${rows.length}/${(state.report.rows || []).length} Studierende, ${Math.max(0, columns.length - 2)} Experimente`;
+    dom.reportSummary.textContent = `${rows.length}/${(state.report.rows || []).length} Studierende, ${Math.max(0, columns.length - 4)} Experimente`;
 
     if (columns.length === 0) {
         const header = document.createElement("th");
@@ -1311,6 +1390,9 @@ function reportSortValue(row, key) {
     if (key === "group") {
         return row.groupName || "";
     }
+    if (key === "totalCredits" || key === "courseMaximum") {
+        return Number(row[key] || 0);
+    }
     return Number(row.values?.[key] || 0);
 }
 
@@ -1320,6 +1402,9 @@ function reportCellValue(row, key) {
     }
     if (key === "group") {
         return row.groupName || "";
+    }
+    if (key === "totalCredits" || key === "courseMaximum") {
+        return row[key] === null ? "" : formatCreditValue(row[key]);
     }
     return String(Number(row.values?.[key] || 0));
 }
@@ -1392,6 +1477,8 @@ function renderExperimentForm() {
         }
         dom.experimentFormTitle.textContent = "Neues Experiment";
         setExperimentActionState(true);
+        renderExperimentGroupOptions();
+        renderReadiness();
         return;
     }
 
@@ -1400,11 +1487,99 @@ function renderExperimentForm() {
     dom.experimentId.value = experiment.id;
     dom.experimentName.value = experiment.name || "";
     dom.experimentDescription.value = experiment.description || "";
+    dom.experimentAdminNotes.value = experiment.adminNotes || "";
+    dom.experimentOpensAt.value = sqlDateTimeToLocal(experiment.opensAt);
+    dom.experimentClosesAt.value = sqlDateTimeToLocal(experiment.closesAt);
+    dom.experimentMaxParticipants.value = experiment.maxParticipants === null ? "" : String(experiment.maxParticipants);
+    dom.experimentRewardCredits.value = String(experiment.rewardCredits ?? 0);
+    dom.experimentAudienceMode.value = experiment.audienceMode || "all_groups";
     dom.eligibilityMode.value = experiment.eligibilityMode;
     dom.conditionMode.value = experiment.conditionMode;
     dom.sortOrder.value = experiment.sortOrder;
     dom.isOpen.checked = experiment.isOpen;
     dom.requiresTimeSlot.checked = experiment.requiresTimeSlot;
+    renderExperimentGroupOptions();
+    renderReadiness();
+}
+
+function renderExperimentGroupOptions() {
+    dom.experimentGroupOptions.innerHTML = "";
+    const selectedIds = new Set((selectedExperiment()?.groupIds || []).map(String));
+    const selectingGroups = dom.experimentAudienceMode.value === "selected_groups";
+    dom.experimentGroupOptions.classList.toggle("d-none", !selectingGroups);
+    if (!selectingGroups) {
+        return;
+    }
+    const groups = state.dashboard?.studentGroups || [];
+    if (groups.length === 0) {
+        dom.experimentGroupOptions.textContent = "Erstellen Sie zuerst mindestens einen Kurs.";
+        return;
+    }
+    const label = document.createElement("div");
+    label.className = "form-label mb-2";
+    label.textContent = "Verfügbare Kurse";
+    dom.experimentGroupOptions.appendChild(label);
+    for (const group of groups) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "form-check form-check-inline";
+        const input = document.createElement("input");
+        input.className = "form-check-input";
+        input.type = "checkbox";
+        input.name = "experimentGroup";
+        input.id = `experimentGroup-${group.id}`;
+        input.value = String(group.id);
+        input.checked = selectedIds.has(String(group.id));
+        const text = document.createElement("label");
+        text.className = "form-check-label";
+        text.htmlFor = input.id;
+        text.textContent = group.name;
+        wrapper.append(input, text);
+        dom.experimentGroupOptions.appendChild(wrapper);
+    }
+}
+
+function selectedExperimentGroupIds() {
+    if (dom.experimentAudienceMode.value !== "selected_groups") {
+        return [];
+    }
+    return Array.from(dom.experimentGroupOptions.querySelectorAll("input[name='experimentGroup']:checked"))
+        .map((input) => Number(input.value));
+}
+
+function renderReadiness() {
+    dom.readinessIndicatorList.innerHTML = "";
+    const readiness = selectedExperiment()?.readiness;
+    if (!readiness) {
+        dom.readinessStatus.className = "badge text-bg-secondary";
+        dom.readinessStatus.textContent = "Noch nicht gespeichert";
+        dom.readinessIndicatorList.appendChild(emptyListGroupItem("Speichern Sie das Experiment zuerst geschlossen und vervollständigen Sie anschließend die Konfiguration."));
+        return;
+    }
+
+    dom.readinessStatus.className = `badge ${readiness.ready ? "text-bg-success" : "text-bg-danger"}`;
+    dom.readinessStatus.textContent = readiness.ready ? "Bereit" : "Nicht bereit";
+    for (const indicator of readiness.indicators || []) {
+        const item = document.createElement("div");
+        item.className = "list-group-item d-flex gap-3 align-items-start";
+        const badge = document.createElement("span");
+        const badgeConfig = {
+            complete: ["text-bg-success", "Vollständig"],
+            error: ["text-bg-danger", "Fehler"],
+            warning: ["text-bg-warning", "Hinweis"],
+            not_required: ["text-bg-light", "Nicht benötigt"],
+        }[indicator.status] || ["text-bg-secondary", indicator.status];
+        badge.className = `badge ${badgeConfig[0]}`;
+        badge.textContent = badgeConfig[1];
+        const text = document.createElement("div");
+        const title = document.createElement("strong");
+        title.textContent = indicator.label;
+        const message = document.createElement("div");
+        message.className = "small text-secondary mt-1";
+        message.textContent = indicator.message;
+        text.append(title, message);
+        item.append(badge, text);
+        dom.readinessIndicatorList.appendChild(item);
+    }
 }
 
 function updateExperimentDependentPanels() {
@@ -2170,6 +2345,8 @@ function renderSlotSection() {
             dom.slotEndsAt.value = sqlDateTimeToLocal(slot.endsAt);
             dom.slotSortOrder.value = slot.sortOrder || 0;
             dom.slotIsActive.checked = slot.isActive;
+            dom.slotIsUndated.checked = slot.isUndated;
+            updateSlotDateControls();
         });
         const remove = smallButton("Löschen", "outline-danger");
         remove.disabled = slot.chosenCount > 0;
@@ -2349,6 +2526,12 @@ function gradingColumns(experiment, options = {}) {
         title: "Angerechnet",
         getText: (participation) => participation.confirmed ? "Ja" : "Nein",
         render: (participation) => participation.confirmed ? "Ja" : "Nein",
+    });
+    columns.push({
+        key: "creditedReward",
+        title: "Punkte",
+        getText: (participation) => participation.confirmed ? formatCreditValue(participation.creditedReward) : "-",
+        render: (participation) => participation.confirmed ? formatCreditValue(participation.creditedReward) : "-",
     });
 
     if (includeActions) {
@@ -2990,8 +3173,11 @@ function selectedExperiment() {
     return (state.dashboard?.experiments || []).find((experiment) => experiment.id === state.selectedExperimentId) || null;
 }
 
-function allowedEmails() {
-    return sortedEmails((state.dashboard?.allowedStudents || []).map((student) => student.email));
+function allowedEmails(experiment = selectedExperiment()) {
+    const selectedGroupIds = new Set((experiment?.groupIds || []).map(String));
+    return sortedEmails((state.dashboard?.allowedStudents || [])
+        .filter((student) => selectedGroupIds.size === 0 || selectedGroupIds.has(String(student.group?.id || "")))
+        .map((student) => student.email));
 }
 
 function effectiveParticipantEmails(experiment) {
@@ -3001,7 +3187,10 @@ function effectiveParticipantEmails(experiment) {
     if (experiment.eligibilityMode === "all_allowed") {
         return allowedEmails();
     }
-    return sortedEmails((experiment.eligibilities || []).map((eligibility) => eligibility.email));
+    const audienceEmails = new Set(allowedEmails(experiment));
+    return sortedEmails((experiment.eligibilities || [])
+        .map((eligibility) => eligibility.email)
+        .filter((email) => audienceEmails.has(email)));
 }
 
 function eligibilityByEmail(experiment) {
@@ -3063,11 +3252,19 @@ function clearExperimentForm() {
     dom.experimentId.value = "";
     dom.experimentName.value = "";
     dom.experimentDescription.value = "";
+    dom.experimentAdminNotes.value = "";
+    dom.experimentOpensAt.value = "";
+    dom.experimentClosesAt.value = "";
+    dom.experimentMaxParticipants.value = "";
+    dom.experimentRewardCredits.value = "1";
+    dom.experimentAudienceMode.value = "all_groups";
     dom.eligibilityMode.value = "selected";
     dom.conditionMode.value = "none";
     dom.sortOrder.value = "0";
     dom.isOpen.checked = false;
     dom.requiresTimeSlot.checked = false;
+    renderExperimentGroupOptions();
+    renderReadiness();
     setExperimentActionState(true);
 }
 
@@ -3108,6 +3305,18 @@ function clearSlotForm() {
     dom.slotEndsAt.value = "";
     dom.slotSortOrder.value = "0";
     dom.slotIsActive.checked = true;
+    dom.slotIsUndated.checked = false;
+    updateSlotDateControls();
+}
+
+function updateSlotDateControls() {
+    const undated = dom.slotIsUndated.checked;
+    dom.slotStartsAt.disabled = undated;
+    dom.slotEndsAt.disabled = undated;
+    if (undated) {
+        dom.slotStartsAt.value = "";
+        dom.slotEndsAt.value = "";
+    }
 }
 
 function fillConditionSelect(select, experiment, emptyLabel) {

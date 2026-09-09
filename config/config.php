@@ -6,6 +6,12 @@ require_once __DIR__ . '/env.php';
 
 load_environment_file(dirname(__DIR__) . '/.env');
 
+$timezone = environment_value('APP_TIMEZONE', 'Europe/Zurich') ?? 'Europe/Zurich';
+if (!in_array($timezone, timezone_identifiers_list(), true)) {
+    throw new RuntimeException('APP_TIMEZONE is invalid.');
+}
+date_default_timezone_set($timezone);
+
 $dsnOverride = environment_value('EXPERIMENT_DB_DSN');
 $dsnOverride = $dsnOverride !== null && trim($dsnOverride) !== '' ? $dsnOverride : null;
 $database = [
@@ -54,4 +60,5 @@ $GLOBALS['APP_CONFIG'] = [
         'name' => environment_value('APP_SESSION_NAME', 'experiment_assignment_v3') ?? 'experiment_assignment_v3',
         'secure' => environment_bool('APP_SESSION_SECURE'),
     ],
+    'timezone' => $timezone,
 ];

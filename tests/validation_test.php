@@ -31,6 +31,21 @@ $checks = [
     ['label' => 'access code rejects punctuation', 'actual' => access_code_meets_requirements('ab12!'), 'expected' => false],
     ['label' => 'generated access code has required complexity', 'actual' => access_code_meets_requirements($generatedAccessCode), 'expected' => true],
     ['label' => 'generated access code is five lowercase characters', 'actual' => preg_match('/^[a-z0-9]{5}$/', $generatedAccessCode) === 1, 'expected' => true],
+    ['label' => 'manual close disables experiment availability', 'actual' => experiment_is_available_now(['is_open' => 0]), 'expected' => false],
+    [
+        'label' => 'active scheduled experiment is available',
+        'actual' => experiment_is_available_now([
+            'is_open' => 1,
+            'opens_at' => '2020-01-01 00:00:00',
+            'closes_at' => '2099-12-31 23:59:59',
+        ]),
+        'expected' => true,
+    ],
+    [
+        'label' => 'future experiment is unavailable',
+        'actual' => experiment_is_available_now(['is_open' => 1, 'opens_at' => '2099-12-31 23:59:59']),
+        'expected' => false,
+    ],
     [
         'label' => 'condition payload maps row',
         'actual' => condition_payload([

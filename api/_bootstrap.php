@@ -328,9 +328,384 @@ function fetch_participation(PDO $pdo, int $experimentId, string $email): ?array
     return $row !== false ? $row : null;
 }
 
-function student_is_eligible(array $experiment, ?array $eligibility): bool
+function write_audit_event(
+    PDO $pdo,
+    string $actorType,
+    ?string $actorIdentifier,
+    string $action,
+    ?string $entityType = null,
+    ?string $entityIdentifier = null,
+    array $details = []
+): void {
+    $statement = $pdo->prepare(
+        'INSERT INTO audit_events
+            (actor_type, actor_identifier, action, entity_type, entity_identifier, details_json, ip_address)
+         VALUES
+            (:actor_type, :actor_identifier, :action, :entity_type, :entity_identifier, :details_json, :ip_address)'
+    );
+    $statement->execute([
+        'actor_type' => $actorType,
+        'actor_identifier' => $actorIdentifier,
+        'action' => substr($action, 0, 100),
+        'entity_type' => $entityType === null ? null : substr($entityType, 0, 100),
+        'entity_identifier' => $entityIdentifier === null ? null : substr($entityIdentifier, 0, 255),
+        'details_json' => $details === [] ? null : json_encode($details, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+        'ip_address' => substr((string) ($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45) ?: null,
+    ]);
+}
+
+function schedule_successful_audit_event(
+    PDO $pdo,
+    string $actorType,
+    ?string $actorIdentifier,
+    string $action,
+    ?string $entityType = null,
+    ?string $entityIdentifier = null,
+    array $details = []
+): void {
+    register_shutdown_function(static function () use (
+        $pdo,
+        $actorType,
+        $actorIdentifier,
+        $action,
+        $entityType,
+        $entityIdentifier,
+        $details
+    ): void {
+        $status = http_response_code();
+        if (!is_int($status) || $status < 200 || $status >= 400) {
+            return;
+        }
+        try {
+            write_audit_event($pdo, $actorType, $actorIdentifier, $action, $entityType, $entityIdentifier, $details);
+        } catch (Throwable $exception) {
+            error_log('Audit event could not be written: ' . $action);
+        }
+    });
+}
+
+function fetch_allowed_student(PDO $pdo, string $email): ?array
 {
-    return $experiment['eligibility_mode'] === 'all_allowed' || $eligibility !== null;
+    $statement = $pdo->prepare(
+        'SELECT a.*, g.name AS group_name, g.max_credits AS group_max_credits
+         FROM allowed_students a
+         INNER JOIN student_groups g ON g.id = a.group_id
+         WHERE a.student_email = :student_email
+         LIMIT 1'
+    );
+    $statement->execute(['student_email' => normalize_student_email($email)]);
+    $student = $statement->fetch();
+
+    return $student !== false ? $student : null;
+}
+
+function explicit_experiment_group_ids(PDO $pdo, int $experimentId): array
+{
+    $statement = $pdo->prepare(
+        'SELECT group_id
+         FROM experiment_group_eligibilities
+         WHERE experiment_id = :experiment_id
+         ORDER BY group_id ASC'
+    );
+    $statement->execute(['experiment_id' => $experimentId]);
+
+    return array_map(static fn (array $row): int => (int) $row['group_id'], $statement->fetchAll());
+}
+
+function student_group_is_eligible(PDO $pdo, int $experimentId, int $groupId): bool
+{
+    $explicitGroupIds = explicit_experiment_group_ids($pdo, $experimentId);
+
+    return $explicitGroupIds === [] || in_array($groupId, $explicitGroupIds, true);
+}
+
+function student_is_eligible(array $experiment, ?array $eligibility, bool $groupEligible = true): bool
+{
+    return $groupEligible && ($experiment['eligibility_mode'] === 'all_allowed' || $eligibility !== null);
+}
+
+function experiment_is_available_now(array $experiment, ?int $now = null): bool
+{
+    if (!bool_value($experiment['is_open'] ?? false)) {
+        return false;
+    }
+    $now ??= time();
+    $opensAt = is_string($experiment['opens_at'] ?? null) && $experiment['opens_at'] !== ''
+        ? strtotime($experiment['opens_at'])
+        : false;
+    $closesAt = is_string($experiment['closes_at'] ?? null) && $experiment['closes_at'] !== ''
+        ? strtotime($experiment['closes_at'])
+        : false;
+
+    return ($opensAt === false || $now >= $opensAt)
+        && ($closesAt === false || $now < $closesAt);
+}
+
+function experiment_is_full(PDO $pdo, array $experiment): bool
+{
+    $maximum = nullable_int($experiment['max_participants'] ?? null);
+    if ($maximum === null) {
+        return false;
+    }
+    $statement = $pdo->prepare('SELECT COUNT(*) FROM participations WHERE experiment_id = :experiment_id');
+    $statement->execute(['experiment_id' => (int) $experiment['id']]);
+
+    return (int) $statement->fetchColumn() >= $maximum;
+}
+
+function experiment_audience_students(PDO $pdo, array $experiment): array
+{
+    $experimentId = (int) $experiment['id'];
+    $explicitGroupIds = explicit_experiment_group_ids($pdo, $experimentId);
+    $params = [];
+    $groupSql = '';
+    if ($explicitGroupIds !== []) {
+        $placeholders = [];
+        foreach ($explicitGroupIds as $index => $groupId) {
+            $key = 'group_id_' . $index;
+            $placeholders[] = ':' . $key;
+            $params[$key] = $groupId;
+        }
+        $groupSql = ' AND a.group_id IN (' . implode(', ', $placeholders) . ')';
+    }
+    $eligibilityJoin = $experiment['eligibility_mode'] === 'selected'
+        ? ' INNER JOIN experiment_eligibilities ee
+              ON ee.student_email = a.student_email
+             AND ee.experiment_id = :experiment_id'
+        : ' LEFT JOIN experiment_eligibilities ee
+              ON ee.student_email = a.student_email
+             AND ee.experiment_id = :experiment_id';
+    $params['experiment_id'] = $experimentId;
+    $statement = $pdo->prepare(
+        'SELECT a.student_email, a.group_id, a.login_code_hash,
+                g.name AS group_name, g.max_credits AS group_max_credits,
+                ee.id AS eligibility_id, ee.condition_id
+         FROM allowed_students a
+         INNER JOIN student_groups g ON g.id = a.group_id' . $eligibilityJoin . '
+         WHERE 1 = 1' . $groupSql . '
+         ORDER BY a.student_email ASC'
+    );
+    $statement->execute($params);
+
+    return $statement->fetchAll();
+}
+
+function student_credit_summary(PDO $pdo, string $email): array
+{
+    $student = fetch_allowed_student($pdo, $email);
+    if ($student === null) {
+        return ['earned' => 0.0, 'maximum' => null, 'remaining' => null];
+    }
+    $statement = $pdo->prepare(
+        'SELECT COALESCE(SUM(reward_credits_snapshot), 0)
+         FROM participations
+         WHERE student_email = :student_email
+           AND confirmed_at IS NOT NULL'
+    );
+    $statement->execute(['student_email' => normalize_student_email($email)]);
+    $earned = round((float) $statement->fetchColumn(), 2);
+    $maximum = $student['group_max_credits'] === null ? null : (float) $student['group_max_credits'];
+
+    return [
+        'earned' => $earned,
+        'maximum' => $maximum,
+        'remaining' => $maximum === null ? null : max(0.0, round($maximum - $earned, 2)),
+    ];
+}
+
+function experiment_readiness(PDO $pdo, array $experiment): array
+{
+    $experimentId = (int) $experiment['id'];
+    $issues = [];
+    $indicators = [];
+    $addIndicator = static function (string $key, string $label, string $status, string $message) use (&$issues, &$indicators): void {
+        $indicators[] = ['key' => $key, 'label' => $label, 'status' => $status, 'message' => $message];
+        if ($status === 'error' || $status === 'warning') {
+            $issues[] = ['severity' => $status, 'key' => $key, 'message' => $message];
+        }
+    };
+
+    $explicitGroupIds = explicit_experiment_group_ids($pdo, $experimentId);
+    $groupParams = [];
+    $groupSql = '';
+    if ($explicitGroupIds !== []) {
+        $groupPlaceholders = [];
+        foreach ($explicitGroupIds as $index => $groupId) {
+            $key = 'readiness_group_' . $index;
+            $groupPlaceholders[] = ':' . $key;
+            $groupParams[$key] = $groupId;
+        }
+        $groupSql = ' WHERE id IN (' . implode(', ', $groupPlaceholders) . ')';
+    }
+    $groupStatement = $pdo->prepare('SELECT id, name, max_credits FROM student_groups' . $groupSql . ' ORDER BY name ASC');
+    $groupStatement->execute($groupParams);
+    $groups = $groupStatement->fetchAll();
+    $students = experiment_audience_students($pdo, $experiment);
+    if ($groups === [] || $students === []) {
+        $addIndicator('audience', 'Zielgruppe', 'error', 'Die Zielgruppe enthält keine Studierenden.');
+    } else {
+        $addIndicator('audience', 'Zielgruppe', 'complete', count($students) . ' Studierende in ' . count($groups) . ' Kursen.');
+    }
+
+    $groupsWithoutMaximum = array_filter($groups, static fn (array $group): bool => $group['max_credits'] === null);
+    if ($groupsWithoutMaximum !== []) {
+        $addIndicator('course_maximum', 'Kursmaxima', 'error', count($groupsWithoutMaximum) . ' Zielkurse haben noch kein Punktemaximum.');
+    } else {
+        $addIndicator('course_maximum', 'Kursmaxima', 'complete', 'Alle Zielkurse haben ein Punktemaximum.');
+    }
+
+    $studentsWithoutCode = array_filter(
+        $students,
+        static fn (array $student): bool => !is_string($student['login_code_hash'] ?? null) || $student['login_code_hash'] === ''
+    );
+    if ($studentsWithoutCode !== []) {
+        $addIndicator('access_codes', 'Zugangscodes', 'error', count($studentsWithoutCode) . ' Studierende der Zielgruppe haben noch keinen Zugangscode.');
+    } else {
+        $addIndicator('access_codes', 'Zugangscodes', 'complete', 'Alle Studierenden der Zielgruppe haben einen Zugangscode.');
+    }
+
+    $conditions = fetch_conditions($pdo, $experimentId);
+    if ($experiment['condition_mode'] === 'none') {
+        $addIndicator('conditions', 'Bedingungen', 'not_required', 'Für dieses Experiment werden keine Bedingungen benötigt.');
+    } elseif ($conditions === []) {
+        $addIndicator('conditions', 'Bedingungen', 'error', 'Der gewählte Bedingungsmodus benötigt mindestens eine Bedingung.');
+    } elseif ($experiment['condition_mode'] === 'assigned') {
+        $unassigned = array_filter($students, static fn (array $student): bool => nullable_int($student['condition_id'] ?? null) === null);
+        $addIndicator(
+            'conditions',
+            'Bedingungen',
+            $unassigned === [] ? 'complete' : 'error',
+            $unassigned === [] ? 'Alle Studierenden haben eine Bedingung.' : count($unassigned) . ' Studierende haben noch keine Bedingung.'
+        );
+    } else {
+        $addIndicator('conditions', 'Bedingungen', 'complete', count($conditions) . ' Bedingungen stehen zur Auswahl.');
+    }
+
+    $allFieldsStatement = $pdo->prepare('SELECT * FROM access_fields WHERE experiment_id = :experiment_id');
+    $allFieldsStatement->execute(['experiment_id' => $experimentId]);
+    $fields = $allFieldsStatement->fetchAll();
+    $emptySharedFields = array_filter(
+        $fields,
+        static fn (array $field): bool => $field['value_source'] === 'shared' && clean_text($field['shared_value'] ?? '') === ''
+    );
+    $poolFields = array_filter($fields, static fn (array $field): bool => $field['value_source'] === 'pool');
+    $staffFields = array_filter(
+        $fields,
+        static fn (array $field): bool => $field['value_source'] === 'staff_entry' && $field['value_type'] !== 'appointment'
+    );
+    $missingStaffValues = 0;
+    if ($staffFields !== []) {
+        $staffValueStatement = $pdo->prepare(
+            'SELECT field_id FROM eligibility_field_values WHERE eligibility_id = :eligibility_id'
+        );
+        foreach ($students as $student) {
+            $eligibilityId = nullable_int($student['eligibility_id'] ?? null);
+            $studentConditionId = nullable_int($student['condition_id'] ?? null);
+            $valueFieldIds = [];
+            if ($eligibilityId !== null) {
+                $staffValueStatement->execute(['eligibility_id' => $eligibilityId]);
+                $valueFieldIds = array_map(
+                    static fn (array $value): int => (int) $value['field_id'],
+                    $staffValueStatement->fetchAll()
+                );
+            }
+            foreach ($staffFields as $field) {
+                $fieldConditionId = nullable_int($field['condition_id'] ?? null);
+                if ($fieldConditionId !== null && $fieldConditionId !== $studentConditionId) {
+                    continue;
+                }
+                if (!in_array((int) $field['id'], $valueFieldIds, true)) {
+                    $missingStaffValues++;
+                }
+            }
+        }
+    }
+    if ($emptySharedFields !== []) {
+        $addIndicator('access_data', 'Zugangsdaten', 'error', count($emptySharedFields) . ' gemeinsame Zugangsfelder haben noch keinen Wert.');
+    } elseif ($missingStaffValues > 0) {
+        $addIndicator('access_data', 'Zugangsdaten', 'error', $missingStaffValues . ' individuelle Verwaltungswerte sind noch nicht vorbereitet.');
+    } elseif ($poolFields !== []) {
+        $poolStatement = $pdo->prepare('SELECT id, condition_id FROM access_pool_rows WHERE experiment_id = :experiment_id');
+        $poolStatement->execute(['experiment_id' => $experimentId]);
+        $poolRows = $poolStatement->fetchAll();
+        $poolValueStatement = $pdo->prepare('SELECT field_id FROM access_pool_values WHERE pool_row_id = :pool_row_id');
+        $missingPoolValues = 0;
+        foreach ($poolRows as $poolRow) {
+            $poolValueStatement->execute(['pool_row_id' => (int) $poolRow['id']]);
+            $valueFieldIds = array_map(
+                static fn (array $value): int => (int) $value['field_id'],
+                $poolValueStatement->fetchAll()
+            );
+            $rowConditionId = nullable_int($poolRow['condition_id'] ?? null);
+            foreach ($poolFields as $field) {
+                $fieldConditionId = nullable_int($field['condition_id'] ?? null);
+                if ($fieldConditionId !== null && $fieldConditionId !== $rowConditionId) {
+                    continue;
+                }
+                if (!in_array((int) $field['id'], $valueFieldIds, true)) {
+                    $missingPoolValues++;
+                }
+            }
+        }
+        $configuredMaximum = nullable_int($experiment['max_participants'] ?? null);
+        $targetCapacity = $configuredMaximum === null ? count($students) : min($configuredMaximum, count($students));
+        if ($missingPoolValues > 0) {
+            $addIndicator('access_data', 'Zugangsdaten', 'error', $missingPoolValues . ' Werte fehlen in den Zugangsdaten-Paketen.');
+        } elseif (count($poolRows) < $targetCapacity) {
+            $addIndicator('access_data', 'Zugangsdaten', 'error', 'Der Zugangsdaten-Pool enthält ' . count($poolRows) . ' von benötigten ' . $targetCapacity . ' Datensätzen.');
+        } else {
+            $addIndicator('access_data', 'Zugangsdaten', 'complete', count($poolRows) . ' vollständige Zugangsdaten-Pakete sind vorbereitet.');
+        }
+    } elseif ($fields === []) {
+        $addIndicator('access_data', 'Zugangsdaten', 'warning', 'Es sind keine studentensichtbaren Zugangsdaten konfiguriert.');
+    } else {
+        $addIndicator('access_data', 'Zugangsdaten', 'complete', count($fields) . ' Zugangsfelder sind konfiguriert.');
+    }
+
+    if (bool_value($experiment['requires_time_slot'] ?? false)) {
+        $slotStatement = $pdo->prepare(
+            'SELECT COUNT(*) AS slot_count, COALESCE(SUM(capacity), 0) AS total_capacity
+             FROM time_slots
+             WHERE experiment_id = :experiment_id AND is_active = 1'
+        );
+        $slotStatement->execute(['experiment_id' => $experimentId]);
+        $slotSummary = $slotStatement->fetch();
+        $slotCount = (int) ($slotSummary['slot_count'] ?? 0);
+        $slotCapacity = (int) ($slotSummary['total_capacity'] ?? 0);
+        $configuredMaximum = nullable_int($experiment['max_participants'] ?? null);
+        $targetCapacity = $configuredMaximum === null ? count($students) : min($configuredMaximum, count($students));
+        if ($slotCount === 0 || $slotCapacity < $targetCapacity) {
+            $addIndicator('time_slots', 'Zeitslots', 'error', $slotCount === 0
+                ? 'Es ist noch kein aktiver Zeitslot vorhanden.'
+                : 'Die aktiven Zeitslots bieten ' . $slotCapacity . ' von benötigten ' . $targetCapacity . ' Plätzen.');
+        } else {
+            $addIndicator('time_slots', 'Zeitslots', 'complete', $slotCount . ' aktive Slots mit ' . $slotCapacity . ' Plätzen.');
+        }
+    } else {
+        $addIndicator('time_slots', 'Zeitslots', 'not_required', 'Für dieses Experiment werden keine Zeitslots benötigt.');
+    }
+
+    $maximum = nullable_int($experiment['max_participants'] ?? null);
+    $addIndicator(
+        'capacity',
+        'Teilnahmelimit',
+        $maximum === null ? 'warning' : 'complete',
+        $maximum === null ? 'Es ist kein maximales Teilnahmelimit gesetzt.' : 'Das Teilnahmelimit beträgt ' . $maximum . '.'
+    );
+    $hasSchedule = clean_text($experiment['opens_at'] ?? '') !== '' || clean_text($experiment['closes_at'] ?? '') !== '';
+    $addIndicator(
+        'schedule',
+        'Verfügbarkeit',
+        $hasSchedule ? 'complete' : 'warning',
+        $hasSchedule ? 'Das Verfügbarkeitsfenster ist konfiguriert.' : 'Das Experiment wird ausschließlich manuell geöffnet und geschlossen.'
+    );
+
+    return [
+        'ready' => !array_filter($issues, static fn (array $issue): bool => $issue['severity'] === 'error'),
+        'issues' => array_values($issues),
+        'indicators' => $indicators,
+        'audienceStudentCount' => count($students),
+    ];
 }
 
 function resolve_participation_condition(PDO $pdo, array $experiment, ?array $eligibility, ?int $requestedConditionId): ?int
@@ -543,7 +918,7 @@ function fetch_appointment_text(PDO $pdo, int $participationId): ?string
 function fetch_slot_choice(PDO $pdo, int $participationId): ?array
 {
     $statement = $pdo->prepare(
-        'SELECT sc.id, sc.chosen_at, ts.id AS slot_id, ts.label, ts.starts_at, ts.ends_at, ts.capacity
+        'SELECT sc.id, sc.chosen_at, ts.id AS slot_id, ts.label, ts.starts_at, ts.ends_at, ts.capacity, ts.is_undated
          FROM slot_choices sc
          INNER JOIN time_slots ts ON ts.id = sc.time_slot_id
          WHERE sc.participation_id = :participation_id
@@ -562,18 +937,19 @@ function fetch_slot_choice(PDO $pdo, int $participationId): ?array
         'endsAt' => $row['ends_at'],
         'chosenAt' => $row['chosen_at'],
         'capacity' => (int) $row['capacity'],
+        'isUndated' => bool_value($row['is_undated']),
     ];
 }
 
 function fetch_time_slots(PDO $pdo, int $experimentId): array
 {
     $statement = $pdo->prepare(
-        'SELECT ts.id, ts.label, ts.starts_at, ts.ends_at, ts.capacity, ts.is_active, ts.sort_order,
+        'SELECT ts.id, ts.label, ts.starts_at, ts.ends_at, ts.capacity, ts.is_active, ts.is_undated, ts.sort_order,
                 COUNT(sc.id) AS chosen_count
          FROM time_slots ts
          LEFT JOIN slot_choices sc ON sc.time_slot_id = ts.id
          WHERE ts.experiment_id = :experiment_id
-         GROUP BY ts.id, ts.label, ts.starts_at, ts.ends_at, ts.capacity, ts.is_active, ts.sort_order
+         GROUP BY ts.id, ts.label, ts.starts_at, ts.ends_at, ts.capacity, ts.is_active, ts.is_undated, ts.sort_order
          ORDER BY ts.sort_order ASC, ts.id ASC'
     );
     $statement->execute(['experiment_id' => $experimentId]);
@@ -591,6 +967,7 @@ function fetch_time_slots(PDO $pdo, int $experimentId): array
             'chosenCount' => $chosenCount,
             'remainingCapacity' => max(0, $capacity - $chosenCount),
             'isActive' => bool_value($row['is_active']),
+            'isUndated' => bool_value($row['is_undated']),
             'sortOrder' => (int) $row['sort_order'],
         ];
     }
@@ -652,9 +1029,14 @@ function access_payload(PDO $pdo, array $participation): array
 function experiment_student_payload(PDO $pdo, array $experiment, string $email): ?array
 {
     $experimentId = (int) $experiment['id'];
+    $student = fetch_allowed_student($pdo, $email);
+    if ($student === null) {
+        return null;
+    }
     $eligibility = fetch_eligibility($pdo, $experimentId, $email);
     $participation = fetch_participation($pdo, $experimentId, $email);
-    $eligible = student_is_eligible($experiment, $eligibility);
+    $groupEligible = student_group_is_eligible($pdo, $experimentId, (int) $student['group_id']);
+    $eligible = student_is_eligible($experiment, $eligibility, $groupEligible);
 
     if (!$eligible && $participation === null) {
         return null;
@@ -677,7 +1059,8 @@ function experiment_student_payload(PDO $pdo, array $experiment, string $email):
         ? $conditionRowsById[$activeConditionId]
         : null;
 
-    $isOpen = bool_value($experiment['is_open']);
+    $isOpen = experiment_is_available_now($experiment);
+    $isFull = experiment_is_full($pdo, $experiment);
     $assigned = $participation !== null;
     $confirmed = $participation !== null && ($participation['confirmed_at'] ?? null) !== null;
     $canChooseCondition = !$assigned
@@ -709,6 +1092,13 @@ function experiment_student_payload(PDO $pdo, array $experiment, string $email):
         'name' => $experiment['public_name'],
         'description' => $experiment['description'],
         'isOpen' => $isOpen,
+        'configuredOpen' => bool_value($experiment['is_open']),
+        'opensAt' => $experiment['opens_at'] ?? null,
+        'closesAt' => $experiment['closes_at'] ?? null,
+        'maxParticipants' => nullable_int($experiment['max_participants'] ?? null),
+        'isFull' => $isFull,
+        'rewardCredits' => round((float) ($experiment['reward_credits'] ?? 0), 2),
+        'creditedReward' => $confirmed ? round((float) ($participation['reward_credits_snapshot'] ?? 0), 2) : null,
         'eligibilityMode' => $experiment['eligibility_mode'],
         'conditionMode' => $experiment['condition_mode'],
         'requiresTimeSlot' => bool_value($experiment['requires_time_slot']),
@@ -719,7 +1109,7 @@ function experiment_student_payload(PDO $pdo, array $experiment, string $email):
         'confirmedAt' => $participation['confirmed_at'] ?? null,
         'condition' => condition_payload($activeCondition),
         'availableConditions' => $availableConditions,
-        'canClaim' => $isOpen && $eligible && !$assigned,
+        'canClaim' => $isOpen && $eligible && !$assigned && !$isFull,
         'canViewAccess' => $isOpen && $assigned && !$confirmed,
         'canChooseCondition' => $canChooseCondition,
         'accessItems' => $isOpen && $participation !== null && !$confirmed ? access_payload($pdo, $participation) : [],
@@ -733,6 +1123,7 @@ function experiment_student_payload(PDO $pdo, array $experiment, string $email):
 function student_overview(PDO $pdo, string $email): array
 {
     require_allowed_student($pdo, $email);
+    $student = fetch_allowed_student($pdo, $email);
 
     $statement = $pdo->query(
         'SELECT *
@@ -750,6 +1141,11 @@ function student_overview(PDO $pdo, string $email): array
 
     return [
         'email' => $email,
+        'group' => [
+            'id' => (int) ($student['group_id'] ?? 0),
+            'name' => $student['group_name'] ?? '',
+        ],
+        'credits' => student_credit_summary($pdo, $email),
         'experiments' => $experiments,
     ];
 }

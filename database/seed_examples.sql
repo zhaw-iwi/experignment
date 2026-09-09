@@ -62,7 +62,8 @@ INSERT INTO access_pool_values (pool_row_id, field_id, field_value) VALUES
     (5, 8, 'S002');
 
 INSERT INTO time_slots
-    (experiment_id, label, starts_at, ends_at, capacity, is_active, sort_order)
+    (experiment_id, label, starts_at, ends_at, capacity, is_active, is_undated, sort_order)
 VALUES
-    (3, 'Montag Vormittag', '2026-06-01 08:00:00', '2026-06-01 12:00:00', 2, 1, 10),
-    (3, 'Dienstag Nachmittag', '2026-06-02 13:00:00', '2026-06-02 17:00:00', 2, 1, 20);
+    (3, 'Montag Vormittag', '2026-06-01 08:00:00', '2026-06-01 12:00:00', 2, 1, 0, 10),
+    (3, 'Dienstag Nachmittag', '2026-06-02 13:00:00', '2026-06-02 17:00:00', 2, 1, 0, 20),
+    (3, 'Kein passender Termin', NULL, NULL, 10, 1, 1, 30);

@@ -26,6 +26,16 @@ $columns = [
         'label' => 'Kurs',
         'type' => 'group',
     ],
+    [
+        'key' => 'totalCredits',
+        'label' => 'Punkte',
+        'type' => 'credits',
+    ],
+    [
+        'key' => 'courseMaximum',
+        'label' => 'Maximum',
+        'type' => 'credits',
+    ],
 ];
 $experimentKeys = [];
 foreach ($experimentRows as $experiment) {
@@ -61,9 +71,12 @@ foreach ($confirmedRows as $confirmedRow) {
 }
 
 $studentRows = $pdo->query(
-    'SELECT a.student_email, g.id AS group_id, g.name AS group_name
+    'SELECT a.student_email, g.id AS group_id, g.name AS group_name, g.max_credits,
+            COALESCE(SUM(CASE WHEN p.confirmed_at IS NOT NULL THEN p.reward_credits_snapshot ELSE 0 END), 0) AS total_credits
      FROM allowed_students a
      INNER JOIN student_groups g ON g.id = a.group_id
+     LEFT JOIN participations p ON p.student_email = a.student_email
+     GROUP BY a.student_email, g.id, g.name, g.max_credits
      ORDER BY g.name ASC, a.student_email ASC'
 )->fetchAll();
 
@@ -80,6 +93,8 @@ foreach ($studentRows as $studentRow) {
         'email' => $email,
         'groupId' => (int) $studentRow['group_id'],
         'groupName' => $studentRow['group_name'],
+        'totalCredits' => round((float) $studentRow['total_credits'], 2),
+        'courseMaximum' => $studentRow['max_credits'] === null ? null : (float) $studentRow['max_credits'],
         'values' => $values,
     ];
 }

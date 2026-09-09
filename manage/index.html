@@ -83,6 +83,13 @@
             </div>
             <div id="experimentList" class="list-group list-group-flush"></div>
         </section>
+        <section id="auditCard" class="card shadow-sm">
+            <div class="card-header bg-white">
+                <h2 class="h5 mb-1">Audit-Log</h2>
+                <div class="text-secondary small">Die letzten 100 erfolgreichen Anmeldungen und Änderungen.</div>
+            </div>
+            <div id="auditEventList" class="list-group list-group-flush"></div>
+        </section>
     </section>
 
     <section id="allowedStudentsView" class="view-stack d-none">
@@ -222,6 +229,34 @@
                         <label for="experimentDescription" class="form-label">Beschreibung</label>
                         <textarea id="experimentDescription" class="form-control" rows="2"></textarea>
                     </div>
+                    <div class="span-2">
+                        <label for="experimentAdminNotes" class="form-label">Interne Notizen</label>
+                        <textarea id="experimentAdminNotes" class="form-control" rows="3"></textarea>
+                        <div class="form-text">Nur in der Administration sichtbar.</div>
+                    </div>
+                    <div>
+                        <label for="experimentOpensAt" class="form-label">Verfügbar ab</label>
+                        <input id="experimentOpensAt" class="form-control" type="datetime-local">
+                    </div>
+                    <div>
+                        <label for="experimentClosesAt" class="form-label">Verfügbar bis</label>
+                        <input id="experimentClosesAt" class="form-control" type="datetime-local">
+                    </div>
+                    <div>
+                        <label for="experimentMaxParticipants" class="form-label">Maximale Teilnehmende</label>
+                        <input id="experimentMaxParticipants" class="form-control" type="number" min="1" step="1" placeholder="unbegrenzt">
+                    </div>
+                    <div>
+                        <label for="experimentRewardCredits" class="form-label">Belohnung in Punkten</label>
+                        <input id="experimentRewardCredits" class="form-control" type="number" min="0" step="0.01" value="1" required>
+                    </div>
+                    <div>
+                        <label for="experimentAudienceMode" class="form-label">Kursfreigabe</label>
+                        <select id="experimentAudienceMode" class="form-select">
+                            <option value="all_groups">Alle Kurse</option>
+                            <option value="selected_groups">Ausgewählte Kurse</option>
+                        </select>
+                    </div>
                     <div>
                         <label for="eligibilityMode" class="form-label">Freigabe</label>
                         <select id="eligibilityMode" class="form-select">
@@ -229,6 +264,7 @@
                             <option value="all_allowed">Alle zugelassenen Studierenden</option>
                         </select>
                     </div>
+                    <div id="experimentGroupOptions" class="span-2 border rounded p-3"></div>
                     <div>
                         <label for="conditionMode" class="form-label">Bedingungen</label>
                         <select id="conditionMode" class="form-select">
@@ -244,7 +280,7 @@
                     <div class="check-column">
                         <div class="form-check">
                             <input id="isOpen" class="form-check-input" type="checkbox">
-                            <label for="isOpen" class="form-check-label">Offen</label>
+                            <label for="isOpen" class="form-check-label">Manuell freigegeben</label>
                         </div>
                         <div class="form-check">
                             <input id="requiresTimeSlot" class="form-check-input" type="checkbox">
@@ -258,6 +294,17 @@
                     </div>
                 </form>
             </div>
+        </section>
+
+        <section id="readinessPanel" class="card shadow-sm">
+            <div class="card-header bg-white d-flex justify-content-between gap-3 align-items-center">
+                <div>
+                    <h2 class="h5 mb-1">Bereit zum Öffnen</h2>
+                    <div class="text-secondary small">Fehler blockieren die Freigabe; Hinweise sind bewusste Konfigurationsentscheidungen.</div>
+                </div>
+                <span id="readinessStatus" class="badge text-bg-secondary">Noch nicht gespeichert</span>
+            </div>
+            <div id="readinessIndicatorList" class="list-group list-group-flush"></div>
         </section>
 
         <section id="conditionPanel" class="card shadow-sm">
@@ -434,6 +481,10 @@
                         <div class="form-check">
                             <input id="slotIsActive" class="form-check-input" type="checkbox" checked>
                             <label for="slotIsActive" class="form-check-label">Aktiv</label>
+                        </div>
+                        <div class="form-check">
+                            <input id="slotIsUndated" class="form-check-input" type="checkbox">
+                            <label for="slotIsUndated" class="form-check-label">Ohne Termin / kein passender Slot</label>
                         </div>
                         <button class="btn btn-primary w-100" type="submit">Slot speichern</button>
                     </div>

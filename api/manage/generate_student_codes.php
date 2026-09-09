@@ -85,4 +85,7 @@ header('Content-Type: text/csv; charset=utf-8');
 header('Content-Disposition: attachment; filename="student-access-codes-' . gmdate('Ymd-His') . '.csv"');
 header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
+schedule_successful_audit_event($pdo, 'admin', 'admin', 'generate_student_access_codes', 'student_roster', null, [
+    'generatedCount' => count($rows),
+]);
 echo $csv;

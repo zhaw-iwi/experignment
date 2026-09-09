@@ -17,12 +17,21 @@ if (!is_valid_student_email($email)) {
 }
 
 $pdo = db();
+schedule_successful_audit_event($pdo, 'admin', 'admin', 'add_allowed_student', 'student', $email);
 $groupLookup = $pdo->prepare('SELECT id FROM student_groups WHERE id = :id LIMIT 1');
 $groupLookup->execute(['id' => $groupId]);
 if ($groupLookup->fetch() === false) {
     fail(404, 'STUDENT_GROUP_NOT_FOUND', 'Der Kurs wurde nicht gefunden.');
 }
 if (is_allowed_student_email($pdo, $email)) {
+    $student = fetch_allowed_student($pdo, $email);
+    if ($student !== null && (int) $student['group_id'] !== $groupId) {
+        $participations = $pdo->prepare('SELECT COUNT(*) FROM participations WHERE student_email = :student_email');
+        $participations->execute(['student_email' => $email]);
+        if ((int) $participations->fetchColumn() > 0) {
+            fail(409, 'STUDENT_GROUP_HAS_PARTICIPATIONS', 'Der Kurs kann nach der ersten Experimentzuweisung nicht mehr geändert werden.');
+        }
+    }
     $update = $pdo->prepare('UPDATE allowed_students SET group_id = :group_id WHERE student_email = :student_email');
     $update->execute(['group_id' => $groupId, 'student_email' => $email]);
     json_response(200, [

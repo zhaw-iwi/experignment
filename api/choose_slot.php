@@ -21,7 +21,7 @@ if ($experiment === null) {
     fail(404, 'EXPERIMENT_NOT_FOUND', 'Das Experiment wurde nicht gefunden.');
 }
 
-if (!bool_value($experiment['is_open'])) {
+if (!experiment_is_available_now($experiment)) {
     fail(409, 'EXPERIMENT_CLOSED', 'Dieses Experiment ist aktuell geschlossen.');
 }
 
@@ -96,6 +96,9 @@ try {
     fail(500, 'SLOT_CHOICE_FAILED', 'Der Zeitslot konnte nicht gespeichert werden.');
 }
 
+schedule_successful_audit_event($pdo, 'student', $email, 'time_slot_chosen', 'time_slot', (string) $slotId, [
+    'experimentId' => $experimentId,
+]);
 json_response(200, [
     'overview' => student_overview($pdo, $email),
 ]);

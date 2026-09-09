@@ -19,6 +19,7 @@ const dom = {
     studentSessionControls: document.getElementById("studentSessionControls"),
     overviewPanel: document.getElementById("overviewPanel"),
     overviewMessage: document.getElementById("overviewMessage"),
+    studentCreditSummary: document.getElementById("studentCreditSummary"),
     currentEmailBadge: document.getElementById("currentEmailBadge"),
     changeEmailButton: document.getElementById("changeEmailButton"),
     experimentRows: document.getElementById("experimentRows"),
@@ -137,11 +138,16 @@ function renderOverview() {
     const experiments = state.overview && Array.isArray(state.overview.experiments)
         ? state.overview.experiments
         : [];
+    const credits = state.overview?.credits || {};
+    const maximum = credits.maximum === null || credits.maximum === undefined
+        ? "Maximum noch nicht festgelegt"
+        : `${formatCreditValue(credits.earned)} von ${formatCreditValue(credits.maximum)} Punkten erreicht`;
+    dom.studentCreditSummary.textContent = `${state.overview?.group?.name || ""} · ${maximum}`;
 
     if (experiments.length === 0) {
         const row = document.createElement("tr");
         const cell = document.createElement("td");
-        cell.colSpan = 6;
+        cell.colSpan = 7;
         cell.className = "text-secondary py-4";
         cell.textContent = "Aktuell sind keine Experimente für diese E-Mail-Adresse freigegeben.";
         row.appendChild(cell);
@@ -151,10 +157,16 @@ function renderOverview() {
 
     for (const experiment of experiments) {
         const row = document.createElement("tr");
-        row.appendChild(textCell(experiment.name, experiment.description || ""));
+        row.appendChild(textCell(experiment.name, experimentRowMeta(experiment)));
         row.appendChild(textCell(experiment.condition ? experiment.condition.name : "-", ""));
         row.appendChild(statusCell(experiment.assigned));
         row.appendChild(textCell(formatDateTime(experiment.assignedAt), ""));
+        row.appendChild(textCell(
+            formatCreditValue(experiment.confirmed ? experiment.creditedReward : experiment.rewardCredits),
+            experiment.confirmed && Number(experiment.creditedReward) < Number(experiment.rewardCredits)
+                ? `von ${formatCreditValue(experiment.rewardCredits)}`
+                : ""
+        ));
         row.appendChild(statusCell(experiment.confirmed));
 
         const actionCell = document.createElement("td");
@@ -184,13 +196,29 @@ function renderOverview() {
         } else {
             button.classList.add("btn-outline-secondary");
             button.disabled = true;
-            button.textContent = experiment.isOpen ? "Nicht verfügbar" : "Geschlossen";
+            button.textContent = experiment.isFull
+                ? "Ausgebucht"
+                : (experiment.configuredOpen ? "Noch nicht verfügbar" : "Geschlossen");
         }
 
         actionCell.appendChild(button);
         row.appendChild(actionCell);
         dom.experimentRows.appendChild(row);
     }
+}
+
+function experimentRowMeta(experiment) {
+    const parts = [];
+    if (experiment.description) {
+        parts.push(experiment.description);
+    }
+    if (experiment.opensAt) {
+        parts.push(`ab ${formatDateTime(experiment.opensAt)}`);
+    }
+    if (experiment.closesAt) {
+        parts.push(`bis ${formatDateTime(experiment.closesAt)}`);
+    }
+    return parts.join(" · ");
 }
 
 function renderSessionControls() {
@@ -463,10 +491,17 @@ function formatDateTime(value) {
 
 function slotLabel(slot) {
     const parts = [slot.label];
+    if (slot.isUndated) {
+        parts.push("ohne Termin");
+    }
     if (slot.startsAt || slot.endsAt) {
         parts.push([formatDateTime(slot.startsAt), formatDateTime(slot.endsAt)].filter((value) => value !== "-").join(" - "));
     }
     return parts.filter(Boolean).join(" · ");
+}
+
+function formatCreditValue(value) {
+    return new Intl.NumberFormat("de-CH", { maximumFractionDigits: 2 }).format(Number(value || 0));
 }
 
 async function copyText(value) {

@@ -11,6 +11,14 @@ require_csrf_token($adminAuth);
 $payload = read_json_body();
 $action = clean_text($payload['action'] ?? '');
 $pdo = db();
+$auditIdentifier = null;
+foreach (['experimentId', 'participationId', 'fieldId', 'conditionId', 'slotId', 'groupId', 'email', 'id'] as $identifierKey) {
+    if (isset($payload[$identifierKey]) && is_scalar($payload[$identifierKey])) {
+        $auditIdentifier = (string) $payload[$identifierKey];
+        break;
+    }
+}
+schedule_successful_audit_event($pdo, 'admin', 'admin', $action, 'management_action', $auditIdentifier);
 
 function ensure_condition_for_experiment(PDO $pdo, ?int $conditionId, int $experimentId): ?int
 {
@@ -232,6 +240,63 @@ function normalized_max_credits(mixed $value): ?float
     return round($credits, 2);
 }
 
+function normalized_reward_credits(mixed $value): float
+{
+    if (!is_numeric($value)) {
+        fail(422, 'INVALID_REWARD_CREDITS', 'Die Belohnung muss eine nicht negative Zahl sein.');
+    }
+    $credits = (float) $value;
+    if (!is_finite($credits) || $credits < 0 || $credits > 999999.99) {
+        fail(422, 'INVALID_REWARD_CREDITS', 'Die Belohnung muss eine nicht negative Zahl sein.');
+    }
+
+    return round($credits, 2);
+}
+
+function normalized_optional_capacity(mixed $value): ?int
+{
+    if ($value === null || trim((string) $value) === '') {
+        return null;
+    }
+    if (!is_numeric($value) || (int) $value != (float) $value || (int) $value <= 0) {
+        fail(422, 'INVALID_MAX_PARTICIPANTS', 'Die maximale Teilnehmerzahl muss eine positive ganze Zahl sein.');
+    }
+
+    return (int) $value;
+}
+
+function normalized_optional_datetime(mixed $value, string $errorCode): ?string
+{
+    $raw = clean_text($value);
+    if ($raw === '') {
+        return null;
+    }
+    $date = DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $raw);
+    $errors = DateTimeImmutable::getLastErrors();
+    if ($date === false || (is_array($errors) && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))) {
+        fail(422, $errorCode, 'Bitte geben Sie ein gültiges Datum mit Uhrzeit ein.');
+    }
+
+    return $date->format('Y-m-d H:i:s');
+}
+
+function normalized_group_id_array(mixed $value): array
+{
+    if (!is_array($value)) {
+        return [];
+    }
+    $ids = [];
+    foreach ($value as $rawId) {
+        $id = nullable_int($rawId);
+        if ($id === null) {
+            fail(422, 'INVALID_STUDENT_GROUP', 'Die Kursauswahl ist ungültig.');
+        }
+        $ids[] = $id;
+    }
+
+    return array_values(array_unique($ids));
+}
+
 function roster_delimiter(string $line): string
 {
     $delimiters = ["\t", ';', ','];
@@ -355,10 +420,16 @@ function normalized_email_array(mixed $rawEmails): array
     return array_values(array_unique($emails));
 }
 
-function require_allowed_email_list(PDO $pdo, array $emails): void
+function require_allowed_email_list(PDO $pdo, array $emails, ?int $experimentId = null): void
 {
     foreach ($emails as $email) {
         require_allowed_student($pdo, $email);
+        if ($experimentId !== null) {
+            $student = fetch_allowed_student($pdo, $email);
+            if ($student === null || !student_group_is_eligible($pdo, $experimentId, (int) $student['group_id'])) {
+                fail(422, 'STUDENT_OUTSIDE_COURSE_AUDIENCE', 'Mindestens eine E-Mail-Adresse gehört nicht zur Kursfreigabe des Experiments.');
+            }
+        }
     }
 }
 
@@ -386,6 +457,92 @@ function participation_count_for_experiment(PDO $pdo, int $experimentId): int
          WHERE experiment_id = :experiment_id',
         ['experiment_id' => $experimentId]
     );
+}
+
+function update_participation_confirmation(PDO $pdo, int $participationId, bool $confirm): array
+{
+    $statement = $pdo->prepare(
+        'SELECT p.id, p.student_email, p.confirmed_at, p.reward_credits_snapshot,
+                e.reward_credits, g.max_credits
+         FROM participations p
+         INNER JOIN experiments e ON e.id = p.experiment_id
+         INNER JOIN allowed_students a ON a.student_email = p.student_email
+         INNER JOIN student_groups g ON g.id = a.group_id
+         WHERE p.id = :id
+         LIMIT 1' . for_update_sql($pdo)
+    );
+    $statement->execute(['id' => $participationId]);
+    $participation = $statement->fetch();
+    if ($participation === false) {
+        return ['found' => false];
+    }
+
+    $studentLock = $pdo->prepare(
+        'SELECT id FROM allowed_students WHERE student_email = :student_email LIMIT 1' . for_update_sql($pdo)
+    );
+    $studentLock->execute(['student_email' => $participation['student_email']]);
+    $studentLock->fetch();
+
+    if (!$confirm) {
+        $update = $pdo->prepare(
+            'UPDATE participations
+             SET confirmed_at = NULL,
+                 reward_credits_snapshot = NULL
+             WHERE id = :id'
+        );
+        $update->execute(['id' => $participationId]);
+        return [
+            'found' => true,
+            'changed' => ($participation['confirmed_at'] ?? null) !== null,
+            'confirmed' => false,
+            'creditedReward' => null,
+        ];
+    }
+
+    if ($participation['max_credits'] === null) {
+        return ['found' => true, 'configurationError' => 'GROUP_MAX_CREDITS_MISSING'];
+    }
+    if (($participation['confirmed_at'] ?? null) !== null) {
+        return [
+            'found' => true,
+            'changed' => false,
+            'confirmed' => true,
+            'creditedReward' => round((float) ($participation['reward_credits_snapshot'] ?? 0), 2),
+        ];
+    }
+
+    $sum = $pdo->prepare(
+        'SELECT COALESCE(SUM(reward_credits_snapshot), 0)
+         FROM participations
+         WHERE student_email = :student_email
+           AND confirmed_at IS NOT NULL
+           AND id <> :id'
+    );
+    $sum->execute([
+        'student_email' => $participation['student_email'],
+        'id' => $participationId,
+    ]);
+    $alreadyCredited = round((float) $sum->fetchColumn(), 2);
+    $remaining = max(0.0, round((float) $participation['max_credits'] - $alreadyCredited, 2));
+    $creditedReward = min(round((float) $participation['reward_credits'], 2), $remaining);
+
+    $update = $pdo->prepare(
+        'UPDATE participations
+         SET confirmed_at = CURRENT_TIMESTAMP,
+             reward_credits_snapshot = :reward_credits_snapshot
+         WHERE id = :id'
+    );
+    $update->execute([
+        'reward_credits_snapshot' => $creditedReward,
+        'id' => $participationId,
+    ]);
+
+    return [
+        'found' => true,
+        'changed' => true,
+        'confirmed' => true,
+        'creditedReward' => $creditedReward,
+    ];
 }
 
 function required_int_list(mixed $rawValues, string $errorCode, string $message): array
@@ -504,6 +661,21 @@ try {
         }
 
         require_student_group($pdo, $id);
+        if ($maxCredits !== null) {
+            $creditRows = $pdo->prepare(
+                'SELECT a.student_email, COALESCE(SUM(CASE WHEN p.confirmed_at IS NOT NULL THEN p.reward_credits_snapshot ELSE 0 END), 0) AS earned
+                 FROM allowed_students a
+                 LEFT JOIN participations p ON p.student_email = a.student_email
+                 WHERE a.group_id = :group_id
+                 GROUP BY a.student_email'
+            );
+            $creditRows->execute(['group_id' => $id]);
+            foreach ($creditRows->fetchAll() as $creditRow) {
+                if ((float) $creditRow['earned'] > $maxCredits) {
+                    fail(409, 'GROUP_MAX_CREDITS_TOO_LOW', 'Das Punktemaximum darf nicht unter bereits angerechneten Punkten liegen.');
+                }
+            }
+        }
         $statement = $pdo->prepare(
             'UPDATE student_groups
              SET name = :name,
@@ -545,6 +717,17 @@ try {
         require_student_group($pdo, $groupId);
 
         if (is_allowed_student_email($pdo, $email)) {
+            $existingStudent = fetch_allowed_student($pdo, $email);
+            if ($existingStudent !== null && (int) $existingStudent['group_id'] !== $groupId) {
+                $participationCount = count_rows(
+                    $pdo,
+                    'SELECT COUNT(*) AS row_count FROM participations WHERE student_email = :student_email',
+                    ['student_email' => $email]
+                );
+                if ($participationCount > 0) {
+                    fail(409, 'STUDENT_GROUP_HAS_PARTICIPATIONS', 'Der Kurs kann nach der ersten Experimentzuweisung nicht mehr geändert werden.');
+                }
+            }
             $update = $pdo->prepare('UPDATE allowed_students SET group_id = :group_id WHERE student_email = :student_email');
             $update->execute(['group_id' => $groupId, 'student_email' => $email]);
             json_response(200, ['created' => false, 'email' => $email, 'groupId' => $groupId]);
@@ -589,6 +772,15 @@ try {
             if ((int) $student['group_id'] === $groupId) {
                 $unchanged++;
                 continue;
+            }
+            $participationCount = count_rows(
+                $pdo,
+                'SELECT COUNT(*) AS row_count FROM participations WHERE student_email = :student_email',
+                ['student_email' => $email]
+            );
+            if ($participationCount > 0) {
+                $pdo->rollBack();
+                fail(409, 'STUDENT_GROUP_HAS_PARTICIPATIONS', 'Die Liste würde den Kurs einer Person mit bestehenden Experimentzuweisungen ändern.');
             }
             $update->execute(['group_id' => $groupId, 'id' => (int) $student['id']]);
             $updated++;
@@ -670,12 +862,23 @@ try {
         $id = nullable_int($payload['id'] ?? null);
         $name = clean_text($payload['name'] ?? '');
         $description = clean_text($payload['description'] ?? '');
+        $adminNotes = clean_text($payload['adminNotes'] ?? '');
         $eligibilityMode = clean_text($payload['eligibilityMode'] ?? 'selected');
         $conditionMode = clean_text($payload['conditionMode'] ?? 'none');
         $sortOrder = (int) ($payload['sortOrder'] ?? 0);
+        $opensAt = normalized_optional_datetime($payload['opensAt'] ?? null, 'INVALID_OPENS_AT');
+        $closesAt = normalized_optional_datetime($payload['closesAt'] ?? null, 'INVALID_CLOSES_AT');
+        $maxParticipants = normalized_optional_capacity($payload['maxParticipants'] ?? null);
+        $rewardCredits = normalized_reward_credits($payload['rewardCredits'] ?? 0);
+        $audienceMode = clean_text($payload['audienceMode'] ?? 'all_groups');
+        $groupIds = normalized_group_id_array($payload['groupIds'] ?? []);
+        $requestedOpen = bool_value($payload['isOpen'] ?? false);
 
-        if ($name === '') {
+        if ($name === '' || strlen($name) > 255) {
             fail(422, 'INVALID_NAME', 'Bitte geben Sie einen Experimentnamen ein.');
+        }
+        if (strlen($adminNotes) > 60000) {
+            fail(422, 'INVALID_ADMIN_NOTES', 'Die internen Notizen sind zu lang.');
         }
         if (!is_valid_eligibility_mode($eligibilityMode)) {
             fail(422, 'INVALID_ELIGIBILITY_MODE', 'Der Freigabemodus ist ungültig.');
@@ -683,52 +886,136 @@ try {
         if (!is_valid_condition_mode($conditionMode)) {
             fail(422, 'INVALID_CONDITION_MODE', 'Der Bedingungsmodus ist ungültig.');
         }
+        if (!in_array($audienceMode, ['all_groups', 'selected_groups'], true)) {
+            fail(422, 'INVALID_AUDIENCE_MODE', 'Die Kursfreigabe ist ungültig.');
+        }
+        if ($audienceMode === 'selected_groups' && $groupIds === []) {
+            fail(422, 'STUDENT_GROUP_REQUIRED', 'Bitte wählen Sie mindestens einen Kurs aus.');
+        }
+        if ($opensAt !== null && $closesAt !== null && strtotime($opensAt) >= strtotime($closesAt)) {
+            fail(422, 'INVALID_AVAILABILITY_WINDOW', 'Der Öffnungszeitpunkt muss vor dem Schließzeitpunkt liegen.');
+        }
+        if ($groupIds !== []) {
+            $groupParams = [];
+            $groupSql = bind_int_list($groupIds, 'experiment_group_', $groupParams);
+            $groupStatement = $pdo->prepare('SELECT COUNT(*) FROM student_groups WHERE id IN (' . $groupSql . ')');
+            $groupStatement->execute($groupParams);
+            if ((int) $groupStatement->fetchColumn() !== count($groupIds)) {
+                fail(422, 'INVALID_STUDENT_GROUP', 'Mindestens ein ausgewählter Kurs existiert nicht.');
+            }
+        }
 
-        if ($id === null) {
+        if ($id !== null) {
+            $existing = fetch_experiment($pdo, $id);
+            if ($existing === null) {
+                fail(404, 'EXPERIMENT_NOT_FOUND', 'Das Experiment wurde nicht gefunden.');
+            }
+            $participationCount = participation_count_for_experiment($pdo, $id);
+            if ($maxParticipants !== null && $maxParticipants < $participationCount) {
+                fail(409, 'MAX_PARTICIPANTS_TOO_LOW', 'Das Teilnahmelimit darf nicht unter der Anzahl bestehender Zuweisungen liegen.');
+            }
+            if ($audienceMode === 'selected_groups') {
+                $participantGroups = $pdo->prepare(
+                    'SELECT DISTINCT a.group_id
+                     FROM participations p
+                     INNER JOIN allowed_students a ON a.student_email = p.student_email
+                     WHERE p.experiment_id = :experiment_id'
+                );
+                $participantGroups->execute(['experiment_id' => $id]);
+                foreach ($participantGroups->fetchAll() as $participantGroup) {
+                    if (!in_array((int) $participantGroup['group_id'], $groupIds, true)) {
+                        fail(409, 'AUDIENCE_HAS_PARTICIPATIONS', 'Kurse mit bestehenden Zuweisungen müssen in der Kursfreigabe bleiben.');
+                    }
+                }
+            }
+        }
+
+        $created = $id === null;
+        $pdo->beginTransaction();
+        if ($created) {
             $statement = $pdo->prepare(
                 'INSERT INTO experiments
-                    (public_name, description, is_open, eligibility_mode, condition_mode, requires_time_slot, sort_order)
+                    (public_name, description, admin_notes, is_open, opens_at, closes_at, max_participants,
+                     reward_credits, eligibility_mode, condition_mode, requires_time_slot, sort_order)
                  VALUES
-                    (:public_name, :description, :is_open, :eligibility_mode, :condition_mode, :requires_time_slot, :sort_order)'
+                    (:public_name, :description, :admin_notes, 0, :opens_at, :closes_at, :max_participants,
+                     :reward_credits, :eligibility_mode, :condition_mode, :requires_time_slot, :sort_order)'
             );
             $statement->execute([
                 'public_name' => $name,
                 'description' => $description !== '' ? $description : null,
-                'is_open' => bool_value($payload['isOpen'] ?? false) ? 1 : 0,
+                'admin_notes' => $adminNotes !== '' ? $adminNotes : null,
+                'opens_at' => $opensAt,
+                'closes_at' => $closesAt,
+                'max_participants' => $maxParticipants,
+                'reward_credits' => $rewardCredits,
                 'eligibility_mode' => $eligibilityMode,
                 'condition_mode' => $conditionMode,
                 'requires_time_slot' => bool_value($payload['requiresTimeSlot'] ?? false) ? 1 : 0,
                 'sort_order' => $sortOrder,
             ]);
-            json_response(201, ['experimentId' => (int) $pdo->lastInsertId()]);
+            $id = (int) $pdo->lastInsertId();
+        } else {
+            $statement = $pdo->prepare(
+                'UPDATE experiments
+                 SET public_name = :public_name,
+                     description = :description,
+                     admin_notes = :admin_notes,
+                     is_open = 0,
+                     opens_at = :opens_at,
+                     closes_at = :closes_at,
+                     max_participants = :max_participants,
+                     reward_credits = :reward_credits,
+                     eligibility_mode = :eligibility_mode,
+                     condition_mode = :condition_mode,
+                     requires_time_slot = :requires_time_slot,
+                     sort_order = :sort_order
+                 WHERE id = :id'
+            );
+            $statement->execute([
+                'id' => $id,
+                'public_name' => $name,
+                'description' => $description !== '' ? $description : null,
+                'admin_notes' => $adminNotes !== '' ? $adminNotes : null,
+                'opens_at' => $opensAt,
+                'closes_at' => $closesAt,
+                'max_participants' => $maxParticipants,
+                'reward_credits' => $rewardCredits,
+                'eligibility_mode' => $eligibilityMode,
+                'condition_mode' => $conditionMode,
+                'requires_time_slot' => bool_value($payload['requiresTimeSlot'] ?? false) ? 1 : 0,
+                'sort_order' => $sortOrder,
+            ]);
         }
 
-        if (fetch_experiment($pdo, $id) === null) {
-            fail(404, 'EXPERIMENT_NOT_FOUND', 'Das Experiment wurde nicht gefunden.');
+        $deleteGroups = $pdo->prepare('DELETE FROM experiment_group_eligibilities WHERE experiment_id = :experiment_id');
+        $deleteGroups->execute(['experiment_id' => $id]);
+        if ($audienceMode === 'selected_groups') {
+            $insertGroup = $pdo->prepare(
+                'INSERT INTO experiment_group_eligibilities (experiment_id, group_id)
+                 VALUES (:experiment_id, :group_id)'
+            );
+            foreach ($groupIds as $groupId) {
+                $insertGroup->execute(['experiment_id' => $id, 'group_id' => $groupId]);
+            }
         }
 
-        $statement = $pdo->prepare(
-            'UPDATE experiments
-             SET public_name = :public_name,
-                 description = :description,
-                 is_open = :is_open,
-                 eligibility_mode = :eligibility_mode,
-                 condition_mode = :condition_mode,
-                 requires_time_slot = :requires_time_slot,
-                 sort_order = :sort_order
-             WHERE id = :id'
-        );
-        $statement->execute([
-            'id' => $id,
-            'public_name' => $name,
-            'description' => $description !== '' ? $description : null,
-            'is_open' => bool_value($payload['isOpen'] ?? false) ? 1 : 0,
-            'eligibility_mode' => $eligibilityMode,
-            'condition_mode' => $conditionMode,
-            'requires_time_slot' => bool_value($payload['requiresTimeSlot'] ?? false) ? 1 : 0,
-            'sort_order' => $sortOrder,
+        $storedExperiment = fetch_experiment($pdo, $id);
+        $readiness = experiment_readiness($pdo, $storedExperiment ?? []);
+        if ($requestedOpen && !$readiness['ready']) {
+            $pdo->rollBack();
+            fail(409, 'EXPERIMENT_NOT_READY', 'Das Experiment ist noch nicht bereit zum Öffnen.', [
+                'issues' => $readiness['issues'],
+            ]);
+        }
+        $openUpdate = $pdo->prepare('UPDATE experiments SET is_open = :is_open WHERE id = :id');
+        $openUpdate->execute(['is_open' => $requestedOpen ? 1 : 0, 'id' => $id]);
+        $pdo->commit();
+
+        json_response($created ? 201 : 200, [
+            'experimentId' => $id,
+            'readiness' => $readiness,
         ]);
-        json_response(200, ['experimentId' => $id]);
     }
 
     if ($action === 'delete_experiment') {
@@ -1172,8 +1459,9 @@ try {
         $experimentId = required_int($payload['experimentId'] ?? null, 'INVALID_EXPERIMENT', 'Bitte wählen Sie ein Experiment aus.');
         $label = clean_text($payload['label'] ?? '');
         $capacity = max(1, (int) ($payload['capacity'] ?? 1));
-        $startsAt = clean_text($payload['startsAt'] ?? '');
-        $endsAt = clean_text($payload['endsAt'] ?? '');
+        $isUndated = bool_value($payload['isUndated'] ?? false);
+        $startsAt = $isUndated ? null : normalized_optional_datetime($payload['startsAt'] ?? null, 'INVALID_SLOT_START');
+        $endsAt = $isUndated ? null : normalized_optional_datetime($payload['endsAt'] ?? null, 'INVALID_SLOT_END');
         $sortOrder = (int) ($payload['sortOrder'] ?? 0);
 
         if (fetch_experiment($pdo, $experimentId) === null) {
@@ -1181,6 +1469,12 @@ try {
         }
         if ($label === '') {
             fail(422, 'INVALID_SLOT_LABEL', 'Bitte geben Sie eine Bezeichnung für den Zeitslot ein.');
+        }
+        if (!$isUndated && ($startsAt === null || $endsAt === null)) {
+            fail(422, 'SLOT_DATES_REQUIRED', 'Datierte Zeitslots benötigen einen Start- und Endzeitpunkt. Wählen Sie sonst „Ohne Termin“ aus.');
+        }
+        if (!$isUndated && strtotime((string) $startsAt) >= strtotime((string) $endsAt)) {
+            fail(422, 'INVALID_SLOT_WINDOW', 'Der Startzeitpunkt des Zeitslots muss vor dem Endzeitpunkt liegen.');
         }
 
         if ($id !== null) {
@@ -1212,17 +1506,18 @@ try {
         if ($id === null) {
             $statement = $pdo->prepare(
                 'INSERT INTO time_slots
-                    (experiment_id, label, starts_at, ends_at, capacity, is_active, sort_order)
+                    (experiment_id, label, starts_at, ends_at, capacity, is_active, is_undated, sort_order)
                  VALUES
-                    (:experiment_id, :label, :starts_at, :ends_at, :capacity, :is_active, :sort_order)'
+                    (:experiment_id, :label, :starts_at, :ends_at, :capacity, :is_active, :is_undated, :sort_order)'
             );
             $statement->execute([
                 'experiment_id' => $experimentId,
                 'label' => $label,
-                'starts_at' => $startsAt !== '' ? $startsAt : null,
-                'ends_at' => $endsAt !== '' ? $endsAt : null,
+                'starts_at' => $startsAt,
+                'ends_at' => $endsAt,
                 'capacity' => $capacity,
                 'is_active' => bool_value($payload['isActive'] ?? true) ? 1 : 0,
+                'is_undated' => $isUndated ? 1 : 0,
                 'sort_order' => $sortOrder,
             ]);
             json_response(201, ['slotId' => (int) $pdo->lastInsertId()]);
@@ -1235,6 +1530,7 @@ try {
                  ends_at = :ends_at,
                  capacity = :capacity,
                  is_active = :is_active,
+                 is_undated = :is_undated,
                  sort_order = :sort_order
              WHERE id = :id
                AND experiment_id = :experiment_id'
@@ -1243,10 +1539,11 @@ try {
             'id' => $id,
             'experiment_id' => $experimentId,
             'label' => $label,
-            'starts_at' => $startsAt !== '' ? $startsAt : null,
-            'ends_at' => $endsAt !== '' ? $endsAt : null,
+            'starts_at' => $startsAt,
+            'ends_at' => $endsAt,
             'capacity' => $capacity,
             'is_active' => bool_value($payload['isActive'] ?? true) ? 1 : 0,
+            'is_undated' => $isUndated ? 1 : 0,
             'sort_order' => $sortOrder,
         ]);
         json_response(200, ['slotId' => $id]);
@@ -1287,7 +1584,7 @@ try {
         }
 
         $emails = normalized_email_array($payload['emails'] ?? []);
-        require_allowed_email_list($pdo, $emails);
+        require_allowed_email_list($pdo, $emails, $experimentId);
         $emailSet = array_fill_keys($emails, true);
         foreach (participation_emails_for_experiment($pdo, $experimentId) as $participationEmail) {
             if (!isset($emailSet[$participationEmail])) {
@@ -1601,6 +1898,10 @@ try {
         $conditionId = ensure_condition_for_experiment($pdo, nullable_int($payload['conditionId'] ?? null), $experimentId);
 
         require_allowed_student($pdo, $email);
+        $student = fetch_allowed_student($pdo, $email);
+        if ($student === null || !student_group_is_eligible($pdo, $experimentId, (int) $student['group_id'])) {
+            fail(422, 'STUDENT_OUTSIDE_COURSE_AUDIENCE', 'Diese E-Mail-Adresse gehört nicht zur Kursfreigabe des Experiments.');
+        }
         if (fetch_experiment($pdo, $experimentId) === null) {
             fail(404, 'EXPERIMENT_NOT_FOUND', 'Das Experiment wurde nicht gefunden.');
         }
@@ -1683,8 +1984,10 @@ try {
         }
 
         $emails = [];
-        foreach ($pdo->query('SELECT student_email FROM allowed_students ORDER BY student_email ASC')->fetchAll() as $row) {
-            $emails[] = (string) $row['student_email'];
+        foreach ($pdo->query('SELECT student_email, group_id FROM allowed_students ORDER BY student_email ASC')->fetchAll() as $row) {
+            if (student_group_is_eligible($pdo, $experimentId, (int) $row['group_id'])) {
+                $emails[] = (string) $row['student_email'];
+            }
         }
         $emails = deterministic_email_order($emails, $seed);
         $counts = allocation_counts($normalizedAllocations, count($emails));
@@ -1781,17 +2084,28 @@ try {
         }
 
         if ($operation === 'confirm' || $operation === 'unconfirm') {
-            $update = $pdo->prepare(
-                'UPDATE participations
-                 SET confirmed_at = ' . ($operation === 'confirm' ? 'CURRENT_TIMESTAMP' : 'NULL') . '
-                 WHERE experiment_id = :experiment_id
-                   AND id IN (' . $idSql . ')'
-            );
-            $update->execute($scopedParams);
+            $pdo->beginTransaction();
+            $affectedCount = 0;
+            $creditedRewards = [];
+            foreach ($participationIds as $participationId) {
+                $result = update_participation_confirmation($pdo, $participationId, $operation === 'confirm');
+                if (($result['configurationError'] ?? null) === 'GROUP_MAX_CREDITS_MISSING') {
+                    $pdo->rollBack();
+                    fail(409, 'GROUP_MAX_CREDITS_MISSING', 'Für mindestens einen Kurs ist noch kein Punktemaximum festgelegt.');
+                }
+                if (bool_value($result['changed'] ?? false)) {
+                    $affectedCount++;
+                }
+                if ($operation === 'confirm') {
+                    $creditedRewards[(string) $participationId] = $result['creditedReward'] ?? 0;
+                }
+            }
+            $pdo->commit();
             json_response(200, [
                 'operation' => $operation,
                 'selectedCount' => count($participationIds),
-                'affectedCount' => $update->rowCount(),
+                'affectedCount' => $affectedCount,
+                'creditedRewards' => $creditedRewards,
             ]);
         }
 
@@ -1851,13 +2165,18 @@ try {
         }
 
         $confirmed = ($row['confirmed_at'] ?? null) === null;
-        $update = $pdo->prepare(
-            'UPDATE participations
-             SET confirmed_at = ' . ($confirmed ? 'CURRENT_TIMESTAMP' : 'NULL') . '
-             WHERE id = :id'
-        );
-        $update->execute(['id' => $participationId]);
-        json_response(200, ['participationId' => $participationId, 'confirmed' => $confirmed]);
+        $pdo->beginTransaction();
+        $result = update_participation_confirmation($pdo, $participationId, $confirmed);
+        if (($result['configurationError'] ?? null) === 'GROUP_MAX_CREDITS_MISSING') {
+            $pdo->rollBack();
+            fail(409, 'GROUP_MAX_CREDITS_MISSING', 'Für den Kurs ist noch kein Punktemaximum festgelegt.');
+        }
+        $pdo->commit();
+        json_response(200, [
+            'participationId' => $participationId,
+            'confirmed' => $confirmed,
+            'creditedReward' => $result['creditedReward'] ?? null,
+        ]);
     }
 
     if ($action === 'save_appointment') {

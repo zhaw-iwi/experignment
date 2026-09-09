@@ -201,6 +201,17 @@ function dashboard_assigned_condition_count(array $dashboard, int $experimentId)
     return $count;
 }
 
+function overview_has_experiment(array $overview, int $experimentId): bool
+{
+    foreach ($overview['experiments'] ?? [] as $experiment) {
+        if (($experiment['id'] ?? null) === $experimentId) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 function dashboard_group_by_name(array $dashboard, string $name): array
 {
     foreach ($dashboard['studentGroups'] ?? [] as $group) {
@@ -271,7 +282,12 @@ function setup_sqlite_database(string $dbPath): void
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         public_name TEXT NOT NULL,
         description TEXT NULL,
+        admin_notes TEXT NULL,
         is_open INTEGER NOT NULL DEFAULT 0,
+        opens_at TEXT NULL,
+        closes_at TEXT NULL,
+        max_participants INTEGER NULL,
+        reward_credits REAL NOT NULL DEFAULT 1,
         eligibility_mode TEXT NOT NULL DEFAULT "selected",
         condition_mode TEXT NOT NULL DEFAULT "none",
         requires_time_slot INTEGER NOT NULL DEFAULT 0,
@@ -347,6 +363,7 @@ function setup_sqlite_database(string $dbPath): void
         access_pool_row_id INTEGER NULL,
         assigned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         confirmed_at TEXT NULL,
+        reward_credits_snapshot REAL NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(experiment_id, student_email),
         UNIQUE(access_pool_row_id)
@@ -366,6 +383,7 @@ function setup_sqlite_database(string $dbPath): void
         ends_at TEXT NULL,
         capacity INTEGER NOT NULL DEFAULT 1,
         is_active INTEGER NOT NULL DEFAULT 1,
+        is_undated INTEGER NOT NULL DEFAULT 0,
         sort_order INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -396,26 +414,37 @@ function setup_sqlite_database(string $dbPath): void
         percentage REAL NOT NULL,
         assigned_count INTEGER NOT NULL
     )');
+    $pdo->exec('CREATE TABLE audit_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        actor_type TEXT NOT NULL,
+        actor_identifier TEXT NULL,
+        action TEXT NOT NULL,
+        entity_type TEXT NULL,
+        entity_identifier TEXT NULL,
+        details_json TEXT NULL,
+        ip_address TEXT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )');
 
     $pdo->exec("INSERT INTO student_groups (id, name, max_credits) VALUES (1, 'Course A', 4), (2, 'Course B', 6)");
     $studentCodes = [
-        'alice@students.zhaw.ch' => 'alice1',
-        'bob@students.zhaw.ch' => 'bob22',
-        'charlie@students.zhaw.ch' => 'charlie3',
+        'alice@students.zhaw.ch' => ['code' => 'alice1', 'groupId' => 1],
+        'bob@students.zhaw.ch' => ['code' => 'bob22', 'groupId' => 1],
+        'charlie@students.zhaw.ch' => ['code' => 'charlie3', 'groupId' => 2],
     ];
-    foreach ($studentCodes as $email => $accessCode) {
+    foreach ($studentCodes as $email => $studentSetup) {
         $pdo->prepare(
             'INSERT INTO allowed_students
                 (student_email, group_id, login_code_hash, login_code_version, login_code_set_at)
-             VALUES (?, 1, ?, 1, CURRENT_TIMESTAMP)'
-        )->execute([$email, password_hash($accessCode, PASSWORD_DEFAULT)]);
+             VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP)'
+        )->execute([$email, $studentSetup['groupId'], password_hash($studentSetup['code'], PASSWORD_DEFAULT)]);
     }
 
     $pdo->exec("INSERT INTO experiments
-        (id, public_name, description, is_open, eligibility_mode, condition_mode, requires_time_slot, sort_order)
+        (id, public_name, description, is_open, max_participants, reward_credits, eligibility_mode, condition_mode, requires_time_slot, sort_order)
         VALUES
-        (1, 'Experiment 1', 'Choice flow', 1, 'all_allowed', 'student_choice', 0, 10),
-        (2, 'Experiment 3', 'Slot flow', 1, 'all_allowed', 'none', 1, 20)");
+        (1, 'Experiment 1', 'Choice flow', 1, NULL, 1.5, 'all_allowed', 'student_choice', 0, 10),
+        (2, 'Experiment 3', 'Slot flow', 1, 2, 2, 'all_allowed', 'none', 1, 20)");
     $pdo->exec("INSERT INTO experiment_conditions (id, experiment_id, public_name, sort_order)
         VALUES (1, 1, 'Text', 10), (2, 1, 'Tablet', 20)");
     $pdo->exec("INSERT INTO access_fields
@@ -432,9 +461,9 @@ function setup_sqlite_database(string $dbPath): void
         (2, 1, 'T002'), (2, 2, 'https://example.test/survey/2'),
         (3, 3, 'S001'), (4, 3, 'S002')");
     $pdo->exec("INSERT INTO time_slots
-        (id, experiment_id, label, starts_at, ends_at, capacity, is_active, sort_order)
+        (id, experiment_id, label, starts_at, ends_at, capacity, is_active, is_undated, sort_order)
         VALUES
-        (1, 2, 'Montag Vormittag', '2026-06-01 08:00:00', '2026-06-01 12:00:00', 1, 1, 10)");
+        (1, 2, 'Montag Vormittag', '2026-06-01 08:00:00', '2026-06-01 12:00:00', 1, 1, 0, 10)");
 }
 
 function wait_for_server(string $baseUrl): void
@@ -595,7 +624,7 @@ try {
 
     $response = make_request($baseUrl, 'GET', '/api/manage/report.php');
     assert_equals($response['status'], 200, 'report should return 200');
-    assert_equals(count($response['body']['columns'] ?? []), 4, 'report should include student code, course, and experiment columns');
+    assert_equals(count($response['body']['columns'] ?? []), 6, 'report should include identity, course credit, and experiment columns');
     $aliceReportRow = report_row_by_code($response['body'] ?? [], 'alice');
     assert_equals($aliceReportRow['email'] ?? null, 'alice@students.zhaw.ch', 'report row should retain source email');
     assert_equals($aliceReportRow['groupName'] ?? null, 'Course A', 'report row should expose the student course');
@@ -708,6 +737,80 @@ try {
     assert_equals($response['body']['deleted'] ?? null, true, 'allowlist removal should report deletion');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_experiment',
+        'name' => 'Incomplete Open Experiment',
+        'maxParticipants' => 1,
+        'rewardCredits' => 1,
+        'audienceMode' => 'selected_groups',
+        'groupIds' => [1],
+        'eligibilityMode' => 'selected',
+        'conditionMode' => 'none',
+        'requiresTimeSlot' => false,
+        'isOpen' => true,
+        'sortOrder' => 21,
+    ]);
+    assert_equals($response['status'], 409, 'readiness errors should block opening an experiment');
+    assert_equals($response['body']['error_code'] ?? null, 'EXPERIMENT_NOT_READY', 'readiness rejection should be explicit');
+    assert_true(count($response['body']['details']['issues'] ?? []) > 0, 'readiness rejection should include actionable issues');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_experiment',
+        'name' => 'Course B Capacity Experiment',
+        'description' => 'Course-targeted availability and capacity flow',
+        'adminNotes' => 'This note must remain administrator-only.',
+        'opensAt' => '2020-01-01 00:00:00',
+        'closesAt' => '2099-12-31 23:59:59',
+        'maxParticipants' => 1,
+        'rewardCredits' => 3,
+        'audienceMode' => 'selected_groups',
+        'groupIds' => [2],
+        'eligibilityMode' => 'all_allowed',
+        'conditionMode' => 'none',
+        'requiresTimeSlot' => false,
+        'isOpen' => true,
+        'sortOrder' => 22,
+    ]);
+    assert_equals($response['status'], 201, 'a complete course-targeted experiment should open');
+    assert_equals($response['body']['readiness']['ready'] ?? null, true, 'course-targeted experiment should be ready');
+    $courseExperimentId = (int) ($response['body']['experimentId'] ?? 0);
+
+    login_student($baseUrl, 'alice@students.zhaw.ch', 'alice1');
+    $response = make_request($baseUrl, 'GET', '/api/student_overview.php');
+    assert_true(!overview_has_experiment($response['body'] ?? [], $courseExperimentId), 'student outside selected course must not see experiment');
+
+    login_student($baseUrl, 'charlie@students.zhaw.ch', 'charlie3');
+    $response = make_request($baseUrl, 'GET', '/api/student_overview.php');
+    assert_true(overview_has_experiment($response['body'] ?? [], $courseExperimentId), 'student in selected course should see experiment');
+    $courseExperiment = experiment_by_id($response['body'] ?? [], $courseExperimentId);
+    assert_equals($courseExperiment['rewardCredits'] ?? null, 3, 'student should see experiment reward');
+    assert_equals($courseExperiment['maxParticipants'] ?? null, 1, 'student should see participant maximum');
+    assert_true(!array_key_exists('adminNotes', $courseExperiment), 'student payload must not expose administrator notes');
+
+    $response = make_request($baseUrl, 'POST', '/api/claim.php', ['experimentId' => $courseExperimentId]);
+    assert_equals($response['status'], 200, 'student in selected course should claim targeted experiment');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_experiment',
+        'id' => $courseExperimentId,
+        'name' => 'Course B Capacity Experiment',
+        'description' => 'Course-targeted availability and capacity flow',
+        'adminNotes' => 'This note must remain administrator-only.',
+        'opensAt' => '2020-01-01 00:00:00',
+        'closesAt' => '2099-12-31 23:59:59',
+        'maxParticipants' => 1,
+        'rewardCredits' => 3,
+        'audienceMode' => 'selected_groups',
+        'groupIds' => [1],
+        'eligibilityMode' => 'all_allowed',
+        'conditionMode' => 'none',
+        'requiresTimeSlot' => false,
+        'isOpen' => true,
+        'sortOrder' => 22,
+    ]);
+    assert_equals($response['status'], 409, 'course audience must retain groups with existing participations');
+    assert_equals($response['body']['error_code'] ?? null, 'AUDIENCE_HAS_PARTICIPATIONS', 'course audience participation guard should be explicit');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'save_student_group',
         'name' => 'Course C',
         'maxCredits' => 8,
@@ -780,7 +883,11 @@ try {
         preg_match('/dana@students\.zhaw\.ch;((?=[a-z0-9]{5}(?:\r?\n|$))(?=[a-z0-9]*[a-z])(?=[a-z0-9]*[0-9])[a-z0-9]{5})/', $response['raw'], $generatedCodeMatch) === 1,
         'generated Dana code should be five lowercase alphanumeric characters with a letter and digit'
     );
-    assert_true(str_contains($response['raw'], 'erik@students.zhaw.ch;'), 'student code CSV should include every student whose code was missing');
+    $generatedErikMatch = [];
+    assert_true(
+        preg_match('/erik@students\.zhaw\.ch;([a-z0-9]{5})/', $response['raw'], $generatedErikMatch) === 1,
+        'student code CSV should include every student whose code was missing'
+    );
     $verificationPdo = new PDO('sqlite:' . $dbPath, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
     $hashStatement = $verificationPdo->prepare('SELECT login_code_hash FROM allowed_students WHERE student_email = ?');
     $hashStatement->execute(['dana@students.zhaw.ch']);
@@ -808,6 +915,65 @@ try {
         'accessCode' => 'Dana44',
     ]);
     assert_equals($response['status'], 200, 'management should manually set a student access code');
+
+    login_student($baseUrl, 'erik@students.zhaw.ch', (string) ($generatedErikMatch[1] ?? ''));
+    $response = make_request($baseUrl, 'POST', '/api/claim.php', ['experimentId' => $courseExperimentId]);
+    assert_equals($response['status'], 409, 'participant maximum should reject additional claims');
+    assert_equals($response['body']['error_code'] ?? null, 'EXPERIMENT_FULL', 'full experiment response should be explicit');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_slot',
+        'experimentId' => 2,
+        'label' => 'Kein passender Termin',
+        'capacity' => 10,
+        'isUndated' => true,
+        'isActive' => true,
+        'sortOrder' => 99,
+    ]);
+    assert_equals($response['status'], 201, 'management should create an explicit undated slot');
+    $undatedSlotId = (int) ($response['body']['slotId'] ?? 0);
+
+    login_student($baseUrl, 'charlie@students.zhaw.ch', 'charlie3');
+    $response = make_request($baseUrl, 'POST', '/api/claim.php', ['experimentId' => 2]);
+    assert_equals($response['status'], 200, 'student should reclaim slot experiment after reset');
+    $response = make_request($baseUrl, 'POST', '/api/choose_slot.php', [
+        'experimentId' => 2,
+        'slotId' => $undatedSlotId,
+    ]);
+    assert_equals($response['status'], 200, 'student should choose explicit undated slot');
+    $slotExperiment = experiment_by_id($response['body']['overview'] ?? [], 2);
+    assert_equals($slotExperiment['slotChoice']['isUndated'] ?? null, true, 'student payload should identify undated slot explicitly');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_experiment',
+        'name' => 'Future Availability Experiment',
+        'opensAt' => '2099-01-01 00:00:00',
+        'closesAt' => '2099-12-31 23:59:59',
+        'maxParticipants' => 1,
+        'rewardCredits' => 1,
+        'audienceMode' => 'selected_groups',
+        'groupIds' => [1],
+        'eligibilityMode' => 'all_allowed',
+        'conditionMode' => 'none',
+        'requiresTimeSlot' => false,
+        'isOpen' => true,
+        'sortOrder' => 24,
+    ]);
+    assert_equals($response['status'], 201, 'future scheduled experiment should pass configuration readiness');
+    $futureExperimentId = (int) ($response['body']['experimentId'] ?? 0);
+    login_student($baseUrl, 'dana@students.zhaw.ch', 'Dana44');
+    $response = make_request($baseUrl, 'GET', '/api/student_overview.php');
+    $futureExperiment = experiment_by_id($response['body'] ?? [], $futureExperimentId);
+    assert_equals($futureExperiment['configuredOpen'] ?? null, true, 'future experiment should retain manual release state');
+    assert_equals($futureExperiment['isOpen'] ?? null, false, 'future experiment should not yet be available');
+    $response = make_request($baseUrl, 'POST', '/api/claim.php', ['experimentId' => $futureExperimentId]);
+    assert_equals($response['status'], 409, 'future availability should be enforced on claim');
+    assert_equals($response['body']['error_code'] ?? null, 'EXPERIMENT_CLOSED', 'future availability response should be explicit');
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'delete_experiment',
+        'experimentId' => $futureExperimentId,
+    ]);
+    assert_equals($response['status'], 200, 'unused future experiment should be removable after schedule test');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'save_experiment',
@@ -852,7 +1018,12 @@ try {
         'eligibilityMode' => 'selected',
         'conditionMode' => 'assigned',
         'requiresTimeSlot' => false,
-        'isOpen' => true,
+        'maxParticipants' => 1,
+        'rewardCredits' => 5,
+        'audienceMode' => 'all_groups',
+        'groupIds' => [],
+        'adminNotes' => 'Internal smoke-test note',
+        'isOpen' => false,
         'sortOrder' => 30,
     ]);
     assert_equals($response['status'], 201, 'management should create experiment');
@@ -1093,6 +1264,25 @@ try {
     ]);
     assert_equals($response['status'], 200, 'management should assign student eligibility');
 
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_experiment',
+        'id' => $managedExperimentId,
+        'name' => 'Managed Experiment',
+        'description' => 'Created through management API',
+        'adminNotes' => 'Internal smoke-test note',
+        'eligibilityMode' => 'selected',
+        'conditionMode' => 'assigned',
+        'requiresTimeSlot' => false,
+        'maxParticipants' => 1,
+        'rewardCredits' => 5,
+        'audienceMode' => 'all_groups',
+        'groupIds' => [],
+        'isOpen' => true,
+        'sortOrder' => 30,
+    ]);
+    assert_equals($response['status'], 200, 'ready experiment should open');
+    assert_equals($response['body']['readiness']['ready'] ?? null, true, 'ready experiment should pass validation');
+
     login_student($baseUrl, 'dana@students.zhaw.ch', 'Dana44');
     $response = make_request($baseUrl, 'POST', '/api/claim.php', [
         'email' => 'dana@students.zhaw.ch',
@@ -1113,6 +1303,10 @@ try {
 
     $response = make_request($baseUrl, 'GET', '/api/manage/dashboard.php');
     assert_equals($response['status'], 200, 'dashboard should load after managed claim');
+    $managedDashboardExperiment = experiment_by_id($response['body'] ?? [], $managedExperimentId);
+    assert_equals($managedDashboardExperiment['adminNotes'] ?? null, 'Internal smoke-test note', 'dashboard should expose administrator-only notes');
+    assert_equals($managedDashboardExperiment['readiness']['ready'] ?? null, true, 'dashboard should expose ready-to-open state');
+    assert_true(count($managedDashboardExperiment['readiness']['indicators'] ?? []) >= 6, 'dashboard should expose operational completeness indicators');
     $managedParticipation = dashboard_participation($response['body'] ?? [], 'dana@students.zhaw.ch', $managedExperimentId);
     $managedParticipationId = (int) $managedParticipation['id'];
     assert_true(
@@ -1175,6 +1369,7 @@ try {
     ]);
     assert_equals($response['status'], 200, 'management should toggle confirmation');
     assert_equals($response['body']['confirmed'] ?? null, true, 'confirmation should be enabled');
+    assert_equals($response['body']['creditedReward'] ?? null, 4, 'final reward should be partially counted at the course maximum');
 
     $response = make_request($baseUrl, 'GET', '/api/manage/report.php');
     assert_equals($response['status'], 200, 'report should load after confirmation');
@@ -1182,6 +1377,7 @@ try {
     $erikReportRow = report_row_by_code($response['body'] ?? [], 'erik');
     assert_equals(report_value_for_experiment($response['body'] ?? [], $danaReportRow, $managedExperimentId), 1, 'confirmed participation should count as approved');
     assert_equals(report_value_for_experiment($response['body'] ?? [], $erikReportRow, $managedExperimentId), 0, 'missing participation should stay zero');
+    assert_equals($danaReportRow['totalCredits'] ?? null, 4, 'report should total snapshotted course credits');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'save_appointment',
@@ -1190,6 +1386,58 @@ try {
     ]);
     assert_equals($response['status'], 200, 'management should save appointment text');
 
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_experiment',
+        'name' => 'Additional Participation After Maximum',
+        'maxParticipants' => 1,
+        'rewardCredits' => 1,
+        'audienceMode' => 'all_groups',
+        'groupIds' => [],
+        'eligibilityMode' => 'selected',
+        'conditionMode' => 'none',
+        'requiresTimeSlot' => false,
+        'isOpen' => false,
+        'sortOrder' => 35,
+    ]);
+    assert_equals($response['status'], 201, 'management should create an additional closed experiment');
+    $additionalExperimentId = (int) ($response['body']['experimentId'] ?? 0);
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'assign_student',
+        'experimentId' => $additionalExperimentId,
+        'email' => 'dana@students.zhaw.ch',
+        'conditionId' => null,
+    ]);
+    assert_equals($response['status'], 200, 'management should select student who already reached course maximum');
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_experiment',
+        'id' => $additionalExperimentId,
+        'name' => 'Additional Participation After Maximum',
+        'maxParticipants' => 1,
+        'rewardCredits' => 1,
+        'audienceMode' => 'all_groups',
+        'groupIds' => [],
+        'eligibilityMode' => 'selected',
+        'conditionMode' => 'none',
+        'requiresTimeSlot' => false,
+        'isOpen' => true,
+        'sortOrder' => 35,
+    ]);
+    assert_equals($response['status'], 200, 'selected additional experiment should open when ready');
+    $response = make_request($baseUrl, 'POST', '/api/claim.php', ['experimentId' => $additionalExperimentId]);
+    assert_equals($response['status'], 200, 'reaching course maximum must not prevent further participation');
+    $response = make_request($baseUrl, 'GET', '/api/manage/dashboard.php');
+    $additionalParticipation = dashboard_participation($response['body'] ?? [], 'dana@students.zhaw.ch', $additionalExperimentId);
+    $auditActions = array_column($response['body']['auditEvents'] ?? [], 'action');
+    assert_true(in_array('participation_claimed', $auditActions, true), 'audit log should include successful student claims');
+    assert_true(in_array('save_experiment', $auditActions, true), 'audit log should include successful management changes');
+    assert_true(in_array('generate_student_access_codes', $auditActions, true), 'audit log should include access-code generation without plaintext values');
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'toggle_confirmation',
+        'participationId' => (int) $additionalParticipation['id'],
+    ]);
+    assert_equals($response['status'], 200, 'additional participation should still be confirmable');
+    assert_equals($response['body']['creditedReward'] ?? null, 0, 'reward after course maximum should count as zero');
+
     $response = make_request($baseUrl, 'GET', '/api/student_overview.php?email=dana%40students.zhaw.ch');
     assert_equals($response['status'], 200, 'student should retrieve managed assignment');
     $managedExperiment = experiment_by_id($response['body'] ?? [], $managedExperimentId);
@@ -1197,6 +1445,10 @@ try {
     assert_equals($managedExperiment['canViewAccess'] ?? null, false, 'confirmed participations should not expose access button');
     assert_equals(count($managedExperiment['accessItems'] ?? []), 0, 'confirmed participations should not expose access data');
     assert_equals($managedExperiment['appointmentText'] ?? null, '09:30', 'student overview should show appointment text');
+    assert_equals($managedExperiment['creditedReward'] ?? null, 4, 'student overview should show partially counted reward');
+    assert_equals($response['body']['credits']['earned'] ?? null, 4, 'student overview should show capped course total');
+    $additionalExperiment = experiment_by_id($response['body'] ?? [], $additionalExperimentId);
+    assert_equals($additionalExperiment['creditedReward'] ?? null, 0, 'student overview should show zero reward after maximum');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'set_student_login_code',

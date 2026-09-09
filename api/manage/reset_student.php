@@ -18,6 +18,9 @@ if (!is_valid_student_email($email)) {
 }
 
 $pdo = db();
+schedule_successful_audit_event($pdo, 'admin', 'admin', 'reset_student', 'student', $email, [
+    'experimentId' => $experimentId,
+]);
 
 $sql = 'SELECT id, access_pool_row_id, assigned_at
         FROM participations

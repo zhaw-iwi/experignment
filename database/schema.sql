@@ -287,7 +287,15 @@ CREATE TABLE time_slots (
     CONSTRAINT fk_time_slots_experiment
         FOREIGN KEY (experiment_id) REFERENCES experiments (id)
         ON DELETE CASCADE
-        ON UPDATE RESTRICT
+        ON UPDATE RESTRICT,
+    CONSTRAINT chk_time_slots_capacity
+        CHECK (capacity > 0),
+    CONSTRAINT chk_time_slots_timing
+        CHECK (
+            (is_undated = 1 AND starts_at IS NULL AND ends_at IS NULL)
+            OR
+            (is_undated = 0 AND starts_at IS NOT NULL AND ends_at IS NOT NULL AND starts_at < ends_at)
+        )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE slot_choices (

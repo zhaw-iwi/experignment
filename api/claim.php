@@ -21,17 +21,20 @@ if ($experiment === null) {
     fail(404, 'EXPERIMENT_NOT_FOUND', 'Das Experiment wurde nicht gefunden.');
 }
 
-if (!bool_value($experiment['is_open'])) {
+if (!experiment_is_available_now($experiment)) {
     fail(409, 'EXPERIMENT_CLOSED', 'Dieses Experiment ist aktuell geschlossen.');
 }
 
 $eligibility = fetch_eligibility($pdo, $experimentId, $email);
-if (!student_is_eligible($experiment, $eligibility)) {
+$student = fetch_allowed_student($pdo, $email);
+$groupEligible = $student !== null && student_group_is_eligible($pdo, $experimentId, (int) $student['group_id']);
+if (!student_is_eligible($experiment, $eligibility, $groupEligible)) {
     fail(403, 'NOT_ELIGIBLE', 'Dieses Experiment ist für Sie nicht freigegeben.');
 }
 
 $existingParticipation = fetch_participation($pdo, $experimentId, $email);
 if ($existingParticipation !== null) {
+    schedule_successful_audit_event($pdo, 'student', $email, 'participation_retrieved', 'experiment', (string) $experimentId);
     json_response(200, [
         'reused' => true,
         'overview' => student_overview($pdo, $email),
@@ -43,6 +46,23 @@ $poolRow = null;
 
 try {
     $pdo->beginTransaction();
+
+    $experimentLock = $pdo->prepare('SELECT * FROM experiments WHERE id = :id LIMIT 1' . for_update_sql($pdo));
+    $experimentLock->execute(['id' => $experimentId]);
+    $lockedExperiment = $experimentLock->fetch();
+    if ($lockedExperiment === false || !experiment_is_available_now($lockedExperiment)) {
+        $pdo->rollBack();
+        fail(409, 'EXPERIMENT_CLOSED', 'Dieses Experiment ist aktuell geschlossen.');
+    }
+    $maximumParticipants = nullable_int($lockedExperiment['max_participants'] ?? null);
+    if ($maximumParticipants !== null) {
+        $countStatement = $pdo->prepare('SELECT COUNT(*) FROM participations WHERE experiment_id = :experiment_id');
+        $countStatement->execute(['experiment_id' => $experimentId]);
+        if ((int) $countStatement->fetchColumn() >= $maximumParticipants) {
+            $pdo->rollBack();
+            fail(409, 'EXPERIMENT_FULL', 'Die maximale Teilnehmerzahl für dieses Experiment ist erreicht.');
+        }
+    }
 
     if (access_fields_require_pool($pdo, $experimentId, $conditionId)) {
         $poolRow = select_available_pool_row($pdo, $experimentId, $conditionId);
@@ -111,6 +131,7 @@ try {
     fail(500, 'CLAIM_FAILED', 'Die Zuweisung konnte nicht gespeichert werden.');
 }
 
+schedule_successful_audit_event($pdo, 'student', $email, 'participation_claimed', 'experiment', (string) $experimentId);
 json_response(200, [
     'reused' => false,
     'overview' => student_overview($pdo, $email),

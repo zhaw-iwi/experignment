@@ -24,7 +24,7 @@ Experiment Assignment App is a PHP/MySQL application for managing student experi
 - [x] 2026-09-09: V3 secure configuration and schema foundation
 - [x] 2026-09-09: V3 student and administrator authentication
 - [x] 2026-09-09: V3 course groups, roster import, and login-code lifecycle
-- [ ] V3 experiment audiences, capacity, rewards, readiness, and completeness
+- [x] 2026-09-09: V3 experiment audiences, capacity, rewards, readiness, and completeness
 - [ ] V3 operational QA and clean production cutover
 
 ## 2026-05-11: V2 Greenfield Multi-Experiment Implementation
@@ -926,3 +926,70 @@ Observed on 2026-09-09:
 
 - Activate experiment course audiences, schedules, participant maxima, rewards, and capped credit totals.
 - Add ready-to-open validation, operational completeness indicators, explicit undated slots, admin notes, and audit events.
+
+## 2026-09-09: V3 Experiment Audiences, Capacity, Rewards, Readiness, And Completeness
+
+### Goal
+
+Activate all semester-level experiment controls, capped reward accounting, operational readiness validation, explicit undated scheduling, private notes, and audit history on top of the authenticated grouped roster.
+
+### What Changed
+
+- Added experiment course audiences, with an empty mapping representing all courses and selected mappings intersecting the existing `all_allowed` or `selected` individual eligibility mode.
+- Scoped participant selection, manual assignment, condition randomization, visibility, and claims to the experiment's course audience.
+- Added public `opens_at` and `closes_at` availability windows interpreted in configurable `APP_TIMEZONE`, while retaining the manual open switch.
+- Added optional experiment participant maxima with serialized server-side claim enforcement and guards against reducing a limit below existing participation.
+- Added numeric experiment rewards and course credit maxima to student, grading, and report payloads and interfaces.
+- Added transactional reward confirmation snapshots: the final reward can be partially credited at the course cap and later confirmed participations receive zero without blocking access or participation.
+- Prevented course changes after a student's first participation, course-audience removal of existing participants, and course-maximum reductions below already credited totals.
+- Added admin-only experiment notes that are omitted from every student response.
+- Added ready-to-open indicators for audience, course maxima, access codes, conditions/assignments, access-data completeness, pool capacity, and time-slot capacity.
+- Blocked opening on readiness errors while treating an omitted schedule or participant maximum as an advisory warning.
+- Added explicit undated time slots that require null start/end values; dated slots require a valid start/end pair.
+- Added a recent audit-event view and successful-event logging for authentication, student claims/retrievals, slot choices, student-code provisioning, and management actions without recording plaintext access codes.
+- Extended the student UI with course point progress, reward values, effective availability, and full-capacity state.
+- Extended reports with credited point totals and course maxima while retaining per-experiment confirmed `0`/`1` columns.
+- Expanded schema, validation, regression, and SQLite HTTP smoke coverage for the new behavior.
+- Updated README and canonical context documentation.
+
+### How To Run
+
+1. Set `APP_TIMEZONE=Europe/Zurich` or another valid PHP timezone in the private deployment `.env`.
+2. Import a grouped roster, generate its missing student codes, and set every target course's point maximum.
+3. Create an experiment, configure its course audience, schedule, capacity, reward, eligibility/access data, and any required slots.
+4. Resolve all blocking readiness indicators, then enable `Für Studierende freigeben`.
+5. Confirm completed participations from `Anrechnung`; credited totals and course limits appear in both grading and Reports.
+6. Review recent operational events in the management overview audit card.
+
+### How To Test
+
+- `Get-ChildItem -Recurse -Filter *.php | ForEach-Object { php -l $_.FullName }`
+- `node --check assets/app.js`
+- `node --check manage/manage.js`
+- `php tests/config_test.php`
+- `php tests/schema_test.php`
+- `php tests/validation_test.php`
+- `php tests/text_quality_test.php`
+- `php tests/js_regression_test.php`
+- `php tests/api_smoke_test.php`
+
+Observed on 2026-09-09:
+
+- PHP syntax checks passed for all PHP files.
+- JavaScript syntax checks passed for both browser applications.
+- All six PHP test scripts passed, including the SQLite-backed end-to-end V3 operations flow.
+
+### Known Issues And Decisions
+
+- Course audience and individual eligibility are intentionally intersecting gates rather than alternatives.
+- Readiness checks evaluate the effective target audience. For selected individual eligibility, access-code, condition, and staff-entry checks therefore apply only to selected students in target courses.
+- No schedule and no maximum participant count are allowed but shown as warnings; incomplete audience, course maxima, codes, required condition/access data, or slot capacity block opening.
+- Confirmation order determines who receives a partial last reward when a course maximum is reached. Reward snapshots keep already reported totals stable if an experiment's configured reward changes later.
+- Removing `Angerechnet` clears its reward snapshot. Re-confirming recalculates it against the then-current remaining course allowance.
+- Audit-event insertion failures are reported to the server error log but do not fail an otherwise successful user operation.
+- Existing production data is not migrated. The cutover uses a clean V3 database and intentionally empty production seed.
+
+### Next Steps
+
+- Verify a clean `schema.sql` import against MySQL/MariaDB and run the complete HTTP/browser acceptance checklist.
+- Prepare the production `.env`, rotate the historically exposed database password, generate a fresh administrator code hash, deploy the application, and import the new grouped roster.

@@ -40,6 +40,7 @@ if (!$valid) {
 
 clear_authentication_failures($pdo, 'student', $email);
 $auth = begin_student_authentication($email, (int) $student['login_code_version']);
+schedule_successful_audit_event($pdo, 'student', $email, 'student_login', 'student', $email);
 
 json_response(200, [
     'authenticated' => true,

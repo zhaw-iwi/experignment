@@ -172,9 +172,21 @@ $participationFieldValueStatement = $pdo->prepare(
      WHERE participation_id = :participation_id
      ORDER BY field_id ASC'
 );
+$experimentGroupStatement = $pdo->prepare(
+    'SELECT eg.group_id, g.name
+     FROM experiment_group_eligibilities eg
+     INNER JOIN student_groups g ON g.id = eg.group_id
+     WHERE eg.experiment_id = :experiment_id
+     ORDER BY g.name ASC, g.id ASC'
+);
 
 foreach ($experimentRows as $experiment) {
     $experimentId = (int) $experiment['id'];
+    $experimentGroupStatement->execute(['experiment_id' => $experimentId]);
+    $experimentGroups = array_map(
+        static fn (array $group): array => ['id' => (int) $group['group_id'], 'name' => $group['name']],
+        $experimentGroupStatement->fetchAll()
+    );
 
     $conditionStatement->execute(['experiment_id' => $experimentId]);
     $conditions = [];
@@ -313,7 +325,16 @@ foreach ($experimentRows as $experiment) {
         'id' => $experimentId,
         'name' => $experiment['public_name'],
         'description' => $experiment['description'],
+        'adminNotes' => $experiment['admin_notes'] ?? null,
         'isOpen' => bool_value($experiment['is_open']),
+        'isAvailableNow' => experiment_is_available_now($experiment),
+        'opensAt' => $experiment['opens_at'] ?? null,
+        'closesAt' => $experiment['closes_at'] ?? null,
+        'maxParticipants' => nullable_int($experiment['max_participants'] ?? null),
+        'rewardCredits' => round((float) ($experiment['reward_credits'] ?? 0), 2),
+        'audienceMode' => $experimentGroups === [] ? 'all_groups' : 'selected_groups',
+        'groups' => $experimentGroups,
+        'groupIds' => array_map(static fn (array $group): int => $group['id'], $experimentGroups),
         'eligibilityMode' => $experiment['eligibility_mode'],
         'conditionMode' => $experiment['condition_mode'],
         'requiresTimeSlot' => bool_value($experiment['requires_time_slot']),
@@ -330,13 +351,14 @@ foreach ($experimentRows as $experiment) {
             'participations' => (int) ($participationCountRow['row_count'] ?? 0),
             'confirmed' => (int) ($participationCountRow['confirmed_count'] ?? 0),
         ],
+        'readiness' => experiment_readiness($pdo, $experiment),
         'randomizationRuns' => $randomizationRuns,
     ];
 }
 
 $participationRows = $pdo->query(
-    'SELECT p.id, p.student_email, p.access_pool_row_id, p.assigned_at, p.confirmed_at,
-            e.id AS experiment_id, e.public_name AS experiment_name,
+    'SELECT p.id, p.student_email, p.access_pool_row_id, p.assigned_at, p.confirmed_at, p.reward_credits_snapshot,
+            e.id AS experiment_id, e.public_name AS experiment_name, e.reward_credits,
             ec.id AS condition_id, ec.public_name AS condition_name,
             ts.label AS slot_label,
             a.appointment_text
@@ -371,10 +393,40 @@ foreach ($participationRows as $row) {
         'assignedAt' => $row['assigned_at'],
         'confirmed' => ($row['confirmed_at'] ?? null) !== null,
         'confirmedAt' => $row['confirmed_at'],
+        'rewardCredits' => round((float) ($row['reward_credits'] ?? 0), 2),
+        'creditedReward' => ($row['confirmed_at'] ?? null) === null
+            ? null
+            : round((float) ($row['reward_credits_snapshot'] ?? 0), 2),
         'slotLabel' => $row['slot_label'],
         'appointmentText' => $row['appointment_text'],
         'fieldValues' => $fieldValues,
         'accessItems' => access_payload($pdo, $row),
+    ];
+}
+
+$auditEvents = [];
+$auditRows = $pdo->query(
+    'SELECT id, actor_type, actor_identifier, action, entity_type, entity_identifier, details_json, ip_address, created_at
+     FROM audit_events
+     ORDER BY created_at DESC, id DESC
+     LIMIT 100'
+)->fetchAll();
+foreach ($auditRows as $auditRow) {
+    $details = null;
+    if (is_string($auditRow['details_json'] ?? null) && $auditRow['details_json'] !== '') {
+        $decoded = json_decode($auditRow['details_json'], true);
+        $details = is_array($decoded) ? $decoded : null;
+    }
+    $auditEvents[] = [
+        'id' => (int) $auditRow['id'],
+        'actorType' => $auditRow['actor_type'],
+        'actorIdentifier' => $auditRow['actor_identifier'],
+        'action' => $auditRow['action'],
+        'entityType' => $auditRow['entity_type'],
+        'entityIdentifier' => $auditRow['entity_identifier'],
+        'details' => $details,
+        'ipAddress' => $auditRow['ip_address'],
+        'createdAt' => $auditRow['created_at'],
     ];
 }
 
@@ -384,4 +436,5 @@ json_response(200, [
     'allowedStudents' => $allowedStudents,
     'experiments' => $experiments,
     'participations' => $participations,
+    'auditEvents' => $auditEvents,
 ]);

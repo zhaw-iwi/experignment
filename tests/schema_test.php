@@ -36,6 +36,7 @@ $requiredSchemaFragments = [
     'CREATE TABLE experiment_group_eligibilities',
     'reward_credits_snapshot DECIMAL(8,2) NULL',
     'is_undated TINYINT(1) NOT NULL DEFAULT 0',
+    'CONSTRAINT chk_time_slots_timing',
     'CREATE TABLE audit_events',
 ];
 

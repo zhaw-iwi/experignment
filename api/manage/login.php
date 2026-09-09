@@ -25,6 +25,7 @@ if (strlen($accessCode) > 128 || !password_verify($accessCode, $configuredHash))
 
 clear_authentication_failures($pdo, 'admin', 'admin');
 $auth = begin_admin_authentication();
+schedule_successful_audit_event($pdo, 'admin', 'admin', 'admin_login', 'session', null);
 
 json_response(200, [
     'authenticated' => true,

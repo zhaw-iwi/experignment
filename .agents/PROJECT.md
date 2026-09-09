@@ -21,8 +21,11 @@ Experiment Assignment App is a PHP/MySQL application for managing student experi
 - [x] 2026-05-20: Grading filters and bulk operations
 - [x] 2026-05-26: Pool renderer grading regression fix
 - [x] 2026-07-05: Tabular approval reports
-- [ ] Migration from historical live database dump
-- [ ] Staff authentication
+- [x] 2026-09-09: V3 secure configuration and schema foundation
+- [ ] V3 student and administrator authentication
+- [ ] V3 course groups, roster import, and login-code lifecycle
+- [ ] V3 experiment audiences, capacity, rewards, readiness, and completeness
+- [ ] V3 operational QA and clean production cutover
 
 ## 2026-05-11: V2 Greenfield Multi-Experiment Implementation
 
@@ -722,3 +725,82 @@ Observed on 2026-07-05:
 ### Next Steps
 
 - Browser-check the Reports view against the live MySQL-backed deployment data.
+
+## 2026-09-09: V3 Secure Configuration And Schema Foundation
+
+### Goal
+
+Prepare an additive V3 database and configuration foundation for a clean-semester deployment without breaking the existing V2 runtime flows while subsequent milestones activate authentication, course groups, capacity, rewards, scheduling, readiness checks, and auditing.
+
+### What Changed
+
+- Removed the live database credential literals from tracked `config/config.php`.
+- Added a strict, dependency-free `.env` loader with process-environment precedence.
+- Added `.env.example` for database and administrator-code-hash configuration.
+- Added ignore rules for `.env`, local live database dumps, temporary student data, logs, and local test state.
+- Added Apache rules that disable directory listing and deny direct HTTP access to hidden and internal project paths.
+- Advanced the clean-install schema marker to version 3.
+- Added additive schema foundations for:
+  - course groups and per-group maximum credits
+  - one optional course-group reference and login-code metadata per student
+  - authentication throttling state
+  - experiment admin notes, availability schedule, participant maximum, and numeric reward
+  - experiment-to-group eligibility
+  - participation reward snapshots
+  - explicitly undated time slots
+  - audit events
+- Kept `allowed_students.group_id` nullable during this compatibility milestone; the structured roster milestone will require a group at application boundaries before activating the feature.
+- Replaced the production seed roster with an intentionally empty production seed.
+- Updated the example seed with representative course groups and student memberships.
+- Added `database/reset_all_data.sql` for a true semester reset while keeping `database/reset.sql` as the experiment-only reset that preserves groups and students.
+- Updated the full drop script for all V3 tables.
+- Advanced the bootstrap version response to 3.
+- Added focused environment-loader and schema-contract tests.
+- Updated README and canonical project context documentation, preserving the newer approval-report milestone from `origin/main`.
+
+### How To Run
+
+1. Copy `.env.example` to `.env` and replace its placeholders.
+2. For a clean installation, import `database/schema.sql` into an empty database.
+3. Do not import any live dump. `database/seed.sql` is optional and intentionally inserts no records.
+4. Continue using the existing runtime UI only with a configured database; V3 behavior is activated by subsequent milestones.
+
+### How To Test
+
+- `Get-ChildItem -Recurse -Filter *.php | ForEach-Object { php -l $_.FullName }`
+- `node --check manage/manage.js`
+- `node --check assets/app.js`
+- `php tests/config_test.php`
+- `php tests/schema_test.php`
+- `php tests/validation_test.php`
+- `php tests/text_quality_test.php`
+- `php tests/js_regression_test.php`
+- `php tests/api_smoke_test.php`
+
+Observed on 2026-09-09:
+
+- PHP syntax checks passed for all PHP files.
+- JavaScript syntax checks passed for both browser applications.
+- `config_test.php` passed.
+- `schema_test.php` passed.
+- `validation_test.php` passed.
+- `text_quality_test.php` passed.
+- `js_regression_test.php` passed.
+- `api_smoke_test.php` passed.
+- A live MySQL import was not attempted because the local MySQL server requires credentials; MariaDB 10.6 clean-import verification remains part of the cutover milestone.
+
+### Known Issues And Decisions
+
+- The schema changes are intentionally additive in this milestone so the current runtime remains operable. New schema capabilities are not yet exposed as public behavior.
+- Student group membership is nullable only during the compatibility sequence. The roster-management milestone will require exactly one group per imported or manually managed student.
+- Generated login-code plaintext will be returned only in its one-time CSV response; only hashes will be stored.
+- Course rewards may be partially counted at the group maximum, though course design should avoid requiring partial rewards.
+- The current database password must be rotated before deployment because removing it from the latest source does not remove it from repository history.
+- A real `.env` must be provisioned on the host before deploying this commit.
+- Local live dumps and temporary student files remain on the filesystem but are ignored and were not modified or staged. The newer `database/live_database_dump.sql` already present on `origin/main` was preserved during the rebase.
+
+### Next Steps
+
+- Implement student email-plus-code authentication and administrator code authentication.
+- Add secure sessions, code-version revocation, throttling, logout, CSRF protection, and protected management endpoints.
+- Add an administrator-code hash provisioning helper.

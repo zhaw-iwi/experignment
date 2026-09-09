@@ -11,7 +11,7 @@ The app has two browser UIs:
 - `index.html`: student-facing page.
 - `manage/index.html`: staff-facing management page.
 
-The implementation is V2, a greenfield continuation of an older one-experiment app. Backward compatibility with the old schema is intentionally not preserved.
+The deployed behavior began as V2, a greenfield continuation of an older one-experiment app. A V3 semester-preparation program is now in progress. Its first milestone adds the schema and secure-configuration foundation while preserving the existing runtime behavior until the subsequent authentication, roster, and experiment-operation milestones activate it. Backward compatibility with the old V1 schema is intentionally not preserved.
 
 ## Current Product Decisions
 
@@ -26,6 +26,19 @@ The implementation is V2, a greenfield continuation of an older one-experiment a
 - `Angerechnet` means staff confirmed the participation for grading.
 - Claiming access does not automatically mean `Angerechnet`.
 - Staff can reset a participation and optionally release its access bundle for reuse.
+
+## Confirmed V3 Preparation Decisions
+
+- Each student belongs to one course group; an experiment can target multiple course groups.
+- Each course group has a maximum credit total per student.
+- Experiments have numeric reward credits, an optional maximum participant count, optional `opens_at` and `closes_at` datetimes, and admin-only notes.
+- A reward that would cross the course maximum is partially counted, although course designers should configure rewards to avoid this case.
+- Student login requires email plus a student login code. Generated codes are five lowercase alphanumeric characters containing at least one letter and one digit; manually set codes may be longer and use uppercase letters.
+- Only login-code hashes are persisted. Plaintext generated codes are available in a one-time CSV response and cannot be recovered later.
+- Regenerating a student login code must invalidate existing student sessions.
+- The administrator UI will use a hashed access code configured through `.env` and a protected server-side session.
+- The V3 operations roadmap includes ready-to-open validation, completeness indicators, explicit undated slots, and an audit log.
+- The V3 schema foundation is additive. Fields and tables introduced by the first milestone are not public behavior until their corresponding application milestone is complete.
 
 ## Experiment And Condition Semantics
 
@@ -165,13 +178,15 @@ The student UI should:
 
 ## Important Files
 
-- `database/schema.sql`: canonical V2 schema.
-- `database/seed.sql`: real course allowlist only; no experiments or access data.
+- `database/schema.sql`: canonical V3 schema.
+- `database/seed.sql`: intentionally empty production seed; semester rosters are imported through management.
 - `database/seed_examples.sql`: self-contained demo/dev data with sample students, representative experiments, access fields, staff-prepared values, access pools, and slots.
-- `database/reset.sql`: removes experiment setup and runtime data while preserving `allowed_students` and schema metadata.
+- `database/reset.sql`: removes experiment setup and runtime data while preserving student groups, students, login-code state, and schema metadata.
+- `database/reset_all_data.sql`: removes all semester, group, student, authentication, and audit data while preserving the schema.
 - `database/drop_tables.sql`: drops all application tables in dependency order for full teardown/rebuild cycles.
 - `database/live_database.sql`: historical live dump from the V1 app. Treat it as migration context only; do not edit it unless the user explicitly asks for migration work.
-- `config/config.php`: deployment DB configuration plus `EXPERIMENT_DB_DSN` test override.
+- `.env.example`: deployment configuration template; the real `.env` is ignored.
+- `config/config.php`: environment-backed deployment configuration plus `EXPERIMENT_DB_DSN` test override.
 - `api/_bootstrap.php`: shared API helpers and domain read helpers.
 - `api/student_overview.php`: student overview endpoint.
 - `api/claim.php`: claim or retrieve participation access.
@@ -185,14 +200,16 @@ The student UI should:
 
 ## Deployment And Configuration
 
-Deploy V2 into an empty database unless doing explicit migration work.
+Deploy the V3 schema into an empty database. Previous-semester records will not be migrated into the prepared deployment.
 
-Database deployment settings are currently stored in `config/config.php` by explicit project choice. `EXPERIMENT_DB_DSN` remains available as an optional override, mostly for tests.
+Database deployment settings are loaded from process environment variables or the ignored root `.env` file. `EXPERIMENT_DB_DSN` remains available as an optional override, mostly for tests. The database password that previously appeared in tracked configuration must be rotated before the next deployment.
 
 ## Tests And Local Limitations
 
 Run:
 
+- `php tests/config_test.php`
+- `php tests/schema_test.php`
 - `php tests/validation_test.php`
 - `php tests/text_quality_test.php`
 - `php tests/js_regression_test.php`
@@ -212,7 +229,6 @@ On the current development machine as last observed:
 
 ## Known Deferred Work
 
-- Migration from `database/live_database.sql` into the V2 schema.
-- Staff authentication.
+- Complete the V3 authentication, course-group roster, student-code, experiment-audience, capacity, reward, readiness, completeness, scheduling, and audit behavior milestones.
 - Browser/manual QA against a MySQL-backed local or deployed environment.
 - More granular automated tests for management actions.

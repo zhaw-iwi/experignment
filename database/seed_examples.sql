@@ -1,8 +1,12 @@
-INSERT INTO allowed_students (student_email) VALUES
-    ('alice@students.zhaw.ch'),
-    ('bob@students.zhaw.ch'),
-    ('charlie@students.zhaw.ch'),
-    ('dana@students.zhaw.ch');
+INSERT INTO student_groups (id, name, max_credits) VALUES
+    (1, 'Course A', 3.00),
+    (2, 'Course B', 4.00);
+
+INSERT INTO allowed_students (student_email, group_id) VALUES
+    ('alice@students.zhaw.ch', 1),
+    ('bob@students.zhaw.ch', 1),
+    ('charlie@students.zhaw.ch', 2),
+    ('dana@students.zhaw.ch', 2);
 
 INSERT INTO experiments
     (id, public_name, description, is_open, eligibility_mode, condition_mode, requires_time_slot, sort_order)

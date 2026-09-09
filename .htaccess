@@ -1,0 +1,20 @@
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^(?:config|database|tests|temp|\.agents|\.git)(?:/|$) - [F,L,NC]
+</IfModule>
+
+<IfModule mod_alias.c>
+    RedirectMatch 403 "(?i)^/(?:config|database|tests|temp|\.agents|\.git)(?:/|$)"
+</IfModule>
+
+<FilesMatch "^\.">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>

@@ -9,10 +9,11 @@ PHP/MySQL web app for assigning experiment access information to ZHAW students a
 - `manage/`: staff UI
 - `api/`: student and staff JSON endpoints
 - `config/config.php`: deployment database configuration
-- `database/schema.sql`: V2 schema
-- `database/seed.sql`: real course allowlist only
+- `database/schema.sql`: V3 schema
+- `database/seed.sql`: intentionally empty production seed
 - `database/seed_examples.sql`: optional representative demo experiments and access data
-- `database/reset.sql`: remove experiment setup and runtime data while preserving the global allowlist
+- `database/reset.sql`: remove experiment setup/runtime data while preserving groups and students
+- `database/reset_all_data.sql`: remove all semester and student data while preserving the schema
 - `database/drop_tables.sql`: drop all application tables in dependency order
 - `.agents/CONTEXT.md`: current domain decisions
 - `.agents/PROJECT.md`: milestone audit trail
@@ -27,15 +28,21 @@ mysql -u USER -p DATABASE < database/schema.sql
 mysql -u USER -p DATABASE < database/seed.sql
 ```
 
-`seed.sql` contains only the current real `allowed_students` list. Use `database/seed_examples.sql` only for a throwaway/demo database because it creates representative example experiments, conditions, selected participants, staff-prepared values, access pools, and slots.
+`seed.sql` intentionally contains no semester-specific records. Import course groups and students through the management workflow after deployment. Use `database/seed_examples.sql` only for a throwaway/demo database because it creates representative example groups, students, experiments, conditions, selected participants, staff-prepared values, access pools, and slots.
 
-Use `database/reset.sql` when you want to remove all experiment configuration and runtime data from a deployment while keeping the global `allowed_students` list.
+Use `database/reset.sql` when you want to remove all experiment configuration and runtime data from a deployment while keeping student groups, students, and their login-code state.
+
+Use `database/reset_all_data.sql` for a semester rollover that should also remove all student groups, students, login-code state, authentication throttles, and audit events.
 
 Use `database/drop_tables.sql` only when you want to remove the full application schema before rebuilding it from `schema.sql`.
 
 ## Configuration
 
-Database deployment settings are stored in `config/config.php`. `EXPERIMENT_DB_DSN` remains available as an optional override for tests, especially the SQLite smoke test.
+Copy `.env.example` to `.env` and configure the database there. Process environment variables take precedence over values loaded from `.env`.
+
+Required MySQL settings are `EXPERIMENT_DB_HOST`, `EXPERIMENT_DB_NAME`, `EXPERIMENT_DB_USER`, and `EXPERIMENT_DB_PASSWORD`. `EXPERIMENT_DB_PORT` defaults to `3306`, and `EXPERIMENT_DB_CHARSET` defaults to `utf8mb4`. `EXPERIMENT_DB_DSN` remains available as an optional complete override for tests, especially the SQLite smoke test.
+
+The V3 schema foundation includes course groups, student login-code metadata, authentication throttling, experiment schedules/capacities/rewards, group eligibility, undated slots, and audit events. These capabilities are activated by the subsequent application milestones; the current student flow remains email-only after this foundation milestone.
 
 ## Student Flow
 
@@ -106,6 +113,8 @@ Staff authentication is intentionally not implemented yet; the page relies on a 
 ## Tests
 
 ```bash
+php tests/config_test.php
+php tests/schema_test.php
 php tests/validation_test.php
 php tests/text_quality_test.php
 php tests/js_regression_test.php

@@ -8,21 +8,58 @@ CREATE TABLE schema_versions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO schema_versions (version_number, description)
-VALUES (2, 'Greenfield multi-experiment schema');
+VALUES (3, 'Semester preparation schema foundation');
+
+CREATE TABLE student_groups (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    name VARCHAR(255) NOT NULL,
+    max_credits DECIMAL(8,2) NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_student_groups_name (name),
+    CONSTRAINT chk_student_groups_max_credits
+        CHECK (max_credits IS NULL OR max_credits >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE allowed_students (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     student_email VARCHAR(255) NOT NULL,
+    group_id BIGINT UNSIGNED NULL,
+    login_code_hash VARCHAR(255) NULL,
+    login_code_version INT UNSIGNED NOT NULL DEFAULT 0,
+    login_code_set_at TIMESTAMP NULL DEFAULT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    UNIQUE KEY uq_allowed_students_student_email (student_email)
+    UNIQUE KEY uq_allowed_students_student_email (student_email),
+    KEY idx_allowed_students_group (group_id, student_email),
+    CONSTRAINT fk_allowed_students_group
+        FOREIGN KEY (group_id) REFERENCES student_groups (id)
+        ON DELETE RESTRICT
+        ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE authentication_throttles (
+    subject_type ENUM('student', 'admin') NOT NULL,
+    subject_hash CHAR(64) NOT NULL,
+    failed_attempts INT UNSIGNED NOT NULL DEFAULT 0,
+    window_started_at DATETIME NULL,
+    locked_until DATETIME NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (subject_type, subject_hash),
+    KEY idx_authentication_throttles_locked_until (locked_until)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE experiments (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     public_name VARCHAR(255) NOT NULL,
     description TEXT NULL,
+    admin_notes TEXT NULL,
     is_open TINYINT(1) NOT NULL DEFAULT 0,
+    opens_at DATETIME NULL,
+    closes_at DATETIME NULL,
+    max_participants INT UNSIGNED NULL,
+    reward_credits DECIMAL(8,2) NOT NULL DEFAULT 1.00,
     eligibility_mode ENUM('all_allowed', 'selected') NOT NULL DEFAULT 'selected',
     condition_mode ENUM('none', 'student_choice', 'assigned') NOT NULL DEFAULT 'none',
     requires_time_slot TINYINT(1) NOT NULL DEFAULT 0,
@@ -31,7 +68,14 @@ CREATE TABLE experiments (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     KEY idx_experiments_sort_order (sort_order, id),
-    KEY idx_experiments_is_open (is_open)
+    KEY idx_experiments_is_open (is_open),
+    KEY idx_experiments_schedule (opens_at, closes_at),
+    CONSTRAINT chk_experiments_schedule
+        CHECK (opens_at IS NULL OR closes_at IS NULL OR opens_at < closes_at),
+    CONSTRAINT chk_experiments_max_participants
+        CHECK (max_participants IS NULL OR max_participants > 0),
+    CONSTRAINT chk_experiments_reward_credits
+        CHECK (reward_credits >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE experiment_conditions (
@@ -46,6 +90,22 @@ CREATE TABLE experiment_conditions (
     CONSTRAINT fk_experiment_conditions_experiment
         FOREIGN KEY (experiment_id) REFERENCES experiments (id)
         ON DELETE CASCADE
+        ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE experiment_group_eligibilities (
+    experiment_id BIGINT UNSIGNED NOT NULL,
+    group_id BIGINT UNSIGNED NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (experiment_id, group_id),
+    KEY idx_experiment_group_eligibilities_group (group_id, experiment_id),
+    CONSTRAINT fk_experiment_group_eligibilities_experiment
+        FOREIGN KEY (experiment_id) REFERENCES experiments (id)
+        ON DELETE CASCADE
+        ON UPDATE RESTRICT,
+    CONSTRAINT fk_experiment_group_eligibilities_group
+        FOREIGN KEY (group_id) REFERENCES student_groups (id)
+        ON DELETE RESTRICT
         ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -166,6 +226,7 @@ CREATE TABLE participations (
     access_pool_row_id BIGINT UNSIGNED NULL,
     assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     confirmed_at TIMESTAMP NULL DEFAULT NULL,
+    reward_credits_snapshot DECIMAL(8,2) NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     UNIQUE KEY uq_participations_experiment_student (experiment_id, student_email),
@@ -217,6 +278,7 @@ CREATE TABLE time_slots (
     ends_at DATETIME NULL,
     capacity INT UNSIGNED NOT NULL DEFAULT 1,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
+    is_undated TINYINT(1) NOT NULL DEFAULT 0,
     sort_order INT NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -289,4 +351,20 @@ CREATE TABLE randomization_run_allocations (
         FOREIGN KEY (condition_id) REFERENCES experiment_conditions (id)
         ON DELETE CASCADE
         ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE audit_events (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    actor_type ENUM('admin', 'student', 'system') NOT NULL,
+    actor_identifier VARCHAR(255) NULL,
+    action VARCHAR(100) NOT NULL,
+    entity_type VARCHAR(100) NULL,
+    entity_identifier VARCHAR(255) NULL,
+    details_json LONGTEXT NULL,
+    ip_address VARCHAR(45) NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_audit_events_created_at (created_at, id),
+    KEY idx_audit_events_action (action, created_at),
+    KEY idx_audit_events_actor (actor_type, actor_identifier, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

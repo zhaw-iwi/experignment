@@ -2,22 +2,27 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/env.php';
+
+load_environment_file(dirname(__DIR__) . '/.env');
+
+$dsnOverride = environment_value('EXPERIMENT_DB_DSN');
+$dsnOverride = $dsnOverride !== null && trim($dsnOverride) !== '' ? $dsnOverride : null;
 $database = [
-    'host' => 'e93ud.myd.infomaniak.com',
-    'port' => '3306',
-    'name' => 'e93ud_aydemmel',
-    'charset' => 'utf8mb4',
-    'username' => 'e93ud_aydemmel',
-    'password' => 'eS9B008$nRc!.',
+    'host' => environment_value('EXPERIMENT_DB_HOST'),
+    'port' => environment_value('EXPERIMENT_DB_PORT', '3306'),
+    'name' => environment_value('EXPERIMENT_DB_NAME'),
+    'charset' => environment_value('EXPERIMENT_DB_CHARSET', 'utf8mb4'),
+    'username' => environment_value('EXPERIMENT_DB_USER'),
+    'password' => environment_value('EXPERIMENT_DB_PASSWORD'),
 ];
 
-$dsnOverride = getenv('EXPERIMENT_DB_DSN');
-$dsnOverride = is_string($dsnOverride) && $dsnOverride !== '' ? $dsnOverride : null;
-
 $missing = [];
-foreach (['host', 'name', 'username', 'password'] as $key) {
-    if (trim((string) ($database[$key] ?? '')) === '') {
-        $missing[] = 'config.db.' . $key;
+if ($dsnOverride === null) {
+    foreach (['host', 'name', 'username', 'password'] as $key) {
+        if ($database[$key] === null || trim($database[$key]) === '') {
+            $missing[] = 'EXPERIMENT_DB_' . strtoupper($key === 'username' ? 'USER' : $key);
+        }
     }
 }
 
@@ -36,8 +41,11 @@ $dsn = $dsnOverride ?? (
 $GLOBALS['APP_CONFIG'] = [
     'db' => [
         'dsn' => $dsn,
-        'username' => $dsnOverride === null ? $database['username'] : '',
-        'password' => $dsnOverride === null ? $database['password'] : '',
+        'username' => $dsnOverride === null ? ($database['username'] ?? '') : '',
+        'password' => $dsnOverride === null ? ($database['password'] ?? '') : '',
         'missing' => $missing,
+    ],
+    'auth' => [
+        'admin_access_code_hash' => environment_value('ADMIN_ACCESS_CODE_HASH'),
     ],
 ];

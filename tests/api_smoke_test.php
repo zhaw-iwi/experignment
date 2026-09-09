@@ -394,7 +394,7 @@ try {
 
     $response = make_request($baseUrl, 'GET', '/api/bootstrap.php');
     assert_equals($response['status'], 200, 'bootstrap should return 200');
-    assert_equals($response['body']['version'] ?? null, 2, 'bootstrap should expose V2');
+    assert_equals($response['body']['version'] ?? null, 3, 'bootstrap should expose V3');
 
     $response = make_request($baseUrl, 'GET', '/api/student_overview.php?email=alice%40students.zhaw.ch');
     assert_equals($response['status'], 200, 'overview should return 200');

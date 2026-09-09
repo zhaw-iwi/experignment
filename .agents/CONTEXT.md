@@ -256,6 +256,7 @@ On the current development machine as last observed:
 - Example-seed import followed by `reset_all_data.sql`, and full `drop_tables.sql` followed by rebuild, both passed.
 - The deployment preflight passed against a dedicated MySQL account with only `SELECT`, `INSERT`, `UPDATE`, and `DELETE` privileges.
 - A MySQL-backed HTTP acceptance flow passed administrator/student authentication, code generation, experiment opening, private-note isolation, participant-limit enforcement, partial reward confirmation, reports, and audit-code secrecy.
+- The repository owner's `.env.test` target passed a destructive local MySQL 8.0.34 cycle: clean import, example-seed/full-reset, full drop/rebuild, preflight, and comprehensive authenticated HTTP acceptance. It was returned to an empty schema-version-3 state afterward.
 
 ## Known Deferred Work
 

@@ -27,6 +27,7 @@ Experiment Assignment App is a PHP/MySQL application for managing student experi
 - [x] 2026-09-09: V3 experiment audiences, capacity, rewards, readiness, and completeness
 - [x] 2026-09-09: V3 operational QA and cutover tooling
 - [x] 2026-09-09: Local database test environment template
+- [x] 2026-09-09: Local MySQL integration acceptance
 - [ ] Clean production deployment and semester activation
 
 ## 2026-05-11: V2 Greenfield Multi-Experiment Implementation
@@ -1098,3 +1099,60 @@ Let the repository owner provide local database credentials for the remaining in
 
 - Wait for the repository owner to create and populate `.env.test`.
 - Verify the reset-allowed flag and database target without printing credentials, then run the remaining local database integration checks.
+
+## 2026-09-09: Local MySQL Integration Acceptance
+
+### Goal
+
+Use the owner-provided ignored `.env.test` to complete destructive database lifecycle and authenticated HTTP integration checks against the actual local MySQL service without exposing credentials.
+
+### What Changed
+
+- Corrected deployment preflight output so it reports an empty semester state only after all required tables have been found; a database with no imported schema no longer receives that misleading success line.
+- Validated the selected configuration without printing values: all required keys were present, placeholders were removed, the host was local, the database name was test-oriented, and `EXPERIMENT_TEST_DATABASE_RESET_ALLOWED` was enabled.
+- Imported `database/schema.sql` and the intentionally empty `database/seed.sql` into the initially empty database.
+- Imported representative example data and verified `database/reset_all_data.sql` returned all semester/runtime tables to zero rows.
+- Dropped all 20 application tables with `database/drop_tables.sql`, rebuilt schema version 3, and verified the production seed left groups and experiments empty.
+- Ran the complete PHP/JavaScript syntax and six-script automated suite with `.env.test` explicitly selected.
+- Ran a local MySQL 8.0.34 HTTP acceptance flow covering authentication boundaries, two course audiences, three student logins, one-time code provisioning, administrator-note isolation, readiness, participant capacity, future availability, explicit undated slot choice, partial and zero capped rewards, reports, and required audit categories.
+- Verified generated student plaintext codes did not occur in audit payloads.
+- Removed all acceptance data with the V3 full reset and finished with 20 tables, schema version 3, and no semester/runtime rows.
+
+### How To Run
+
+1. Set `$env:EXPERIMENT_ENV_FILE = '.env.test'`.
+2. Run `php scripts/deployment_preflight.php --expect-empty` with `APP_SESSION_SECURE=true` as a CLI-only override when checking production-equivalent settings.
+3. Run the automated commands listed in README.
+
+### How To Test
+
+- Full PHP syntax checks and JavaScript syntax checks.
+- `php tests/config_test.php`
+- `php tests/schema_test.php`
+- `php tests/validation_test.php`
+- `php tests/text_quality_test.php`
+- `php tests/js_regression_test.php`
+- `php tests/api_smoke_test.php`
+- Clean schema/seed import, example/full-reset, and drop/rebuild checks through the local MySQL client.
+- Authenticated HTTP acceptance through PHP's local development server and the local MySQL database.
+- Final `php scripts/deployment_preflight.php --expect-empty`.
+
+Observed on 2026-09-09:
+
+- Every syntax and automated test passed.
+- MySQL reported version 8.0.34, 20 V3 tables, and schema version 3.
+- Example data produced two groups, four students, three experiments, and three slots; the subsequent full reset returned all checked counts to zero.
+- Drop/rebuild produced exactly 20 tables and an empty production state.
+- HTTP acceptance completed with a four-point partial reward and a zero-point post-cap reward, while all expected audit categories were present.
+- Final preflight completed with 11 passes, one local-root warning, and zero errors.
+
+### Known Issues And Decisions
+
+- The local database uses a root account. This is accepted only for local QA; production must use the dedicated least-privilege application account described in the cutover guide.
+- `APP_SESSION_SECURE=false` is correct for a local HTTP server. The CLI preflight used a process-only `true` override to exercise the production requirement without modifying `.env.test`.
+- The ignored `.env.test` was read without displaying its database or administrator credentials and was not modified.
+- The remaining unchecked milestone is the actual production deployment and semester activation, not additional local database testing.
+
+### Next Steps
+
+- Provision production access and execute `docs/PRODUCTION_CUTOVER.md` against the online host.

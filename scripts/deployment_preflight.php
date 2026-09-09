@@ -181,10 +181,11 @@ if ($pdo instanceof PDO) {
             }
         }
 
-        if ($expectEmpty) {
+        $allRequiredTablesPresent = array_diff(array_keys($requiredColumns), array_keys($tableEngines)) === [];
+        if ($expectEmpty && $allRequiredTablesPresent) {
             $nonEmpty = [];
             foreach (array_keys($requiredColumns) as $table) {
-                if ($table === 'schema_versions' || !isset($tableEngines[$table])) {
+                if ($table === 'schema_versions') {
                     continue;
                 }
                 $rowCount = (int) $pdo->query('SELECT COUNT(*) FROM `' . $table . '`')->fetchColumn();

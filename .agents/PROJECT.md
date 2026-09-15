@@ -36,7 +36,7 @@ Experiment Assignment App is a PHP/MySQL application for managing student experi
 - [x] 2026-09-15: V4 chest persistence and live migration
 - [x] 2026-09-15: Student chest exactly-once lifecycle and API
 - [x] 2026-09-15: Student chest queue, visual, and accessibility
-- [ ] Student chest browser acceptance and production handoff
+- [x] 2026-09-15: Student chest browser acceptance and production handoff
 - [ ] Clean production deployment and semester activation
 
 ## 2026-05-11: V2 Greenfield Multi-Experiment Implementation
@@ -1627,3 +1627,66 @@ Observed on 2026-09-15:
 ### Next Steps
 
 - Implement Milestone 4 from `.agents/PLAN_CHESTS.md`: isolated Playwright chest fixtures and full/reduced-motion, queue, failure, cleanup, focus, responsive, screenshot, and production-handoff acceptance.
+
+## 2026-09-15: Student Chest Browser Acceptance And Production Handoff
+
+### Goal
+
+Prove the real multi-chest experience in an isolated browser environment and give the live V3 installation an explicit migration-first V4 deployment, acceptance, cleanup, and rollback procedure.
+
+### What Changed
+
+- Expanded the temporary SQLite browser fixture with separate students and durable events for normal motion, multiple FIFO items, reduced motion, cancellation, slow acknowledgement, retry, session restoration, multi-tab idempotency, and long localized content.
+- Added nine Chromium chest scenarios alongside the seven existing points scenarios. The suite covers no pending events, one event, several approvals accumulated while logged out, closed-state reset, exact normal-motion phase relationships and animation names, synchronous duplicate guards, and one request per event.
+- Added browser coverage for immediate reduced motion, stale-timer cancellation into a different event, visual settlement while acknowledgement is held indefinitely, failed acknowledgement and retry without replay, restored-session count without auto-opening/focus theft, and safe duplicate acknowledgement from two tabs.
+- Added keyboard activation, modal focus containment/restoration, live result text, long mobile copy/error/action containment, local 1254 x 1254 image decoding, no remote image request, gold variant palette/image mapping, and stable closed/open screenshots.
+- Updated the Playwright configuration to run both student test files while retaining one worker and an isolated fixture.
+- Updated the production cutover guide with the exact backup, V3 precondition, phpMyAdmin migration, V4 verification, application deployment, preflight, disposable confirmation, chest/points check, duplicate-confirmation check, and scoped cleanup order.
+- Documented that a V3 application may coexist briefly with the additive V4 table, V4 files must never precede the migration, application rollback preserves the V4 table/history, and database restore is reserved for explicitly accepted loss of all post-backup activity.
+
+### How To Run
+
+1. Install pinned test dependencies with `npm install` and Chromium with `npx playwright install chromium` if needed.
+2. Run `npm run test:browser` from the repository root.
+3. Let `tests/browser/run.mjs` create and remove its temporary SQLite database, explicit environment file, PHP session directory, server, and default artifacts.
+
+The runner strips inherited database/application settings and never selects the repository's root `.env`. Set `POINTS_TEST_ARTIFACT_DIR` only to an explicitly chosen external temporary directory when screenshots/traces need review.
+
+### How To Test
+
+- `Get-ChildItem -Recurse -Filter *.php | ForEach-Object { php -l $_.FullName }`
+- `rg --files -g '*.js' -g '*.mjs' -g '*.cjs' -g '!node_modules/**' | ForEach-Object { node --check $_ }`
+- `php tests/config_test.php`
+- `php tests/schema_test.php`
+- `php tests/validation_test.php`
+- `php tests/text_quality_test.php`
+- `php tests/js_regression_test.php`
+- `php tests/api_smoke_test.php`
+- `node tests/points_ui_test.js`
+- `npm run test:chests`
+- `npm run test:browser`
+- `git diff --check`
+
+Observed on 2026-09-15:
+
+- All 16 isolated Chromium scenarios passed in one-worker mode, including nine chest scenarios and the seven existing points scenarios.
+- The normal-motion timeline observed charging, burst, reveal, settlement, and cleanup in the documented order and timing windows while sending one acknowledgement.
+- Both static chest screenshots were reviewed at original resolution; closed/open art stays aligned, local, legible, and contained in the desktop modal.
+- The browser runner removed its temporary database, environment, sessions, server, and default artifacts. Manual-review screenshots were held only in a verified OS temporary directory and removed after inspection.
+- Every repository PHP and JavaScript source passed syntax validation; all six PHP suites, both focused Node suites, and all 16 Playwright scenarios passed in the final verification run.
+- `git diff --check` passed, and the final status contained only the intended source, fixture, documentation, and test changes listed for this milestone.
+
+### Known Issues And Decisions
+
+- No reset-approved `.env.test` exists, so this milestone does not execute the migration against a disposable MySQL database. The exact file remains the live phpMyAdmin artifact, and the cutover requires its pre/post queries plus V4 preflight before acceptance data is created.
+- Browser tests use the historical `POINTS_TEST_ARTIFACT_DIR` environment-variable name for compatibility even though the harness now covers points and chests.
+- The only shipped visual variant is `gold`; the browser suite verifies its server token, palette, closed/open mapping, and local decoding.
+- Default test artifacts are intentionally ephemeral. Set the external artifact directory only for explicit review and remove it afterward.
+
+### Production Handoff
+
+Follow `docs/PRODUCTION_CUTOVER.md`, especially **Student Chest Persistence V4 Migration**. The order is migration first, V4 files second, then preflight and a scoped disposable participation. Do not deploy V4 confirmation paths against schema V3.
+
+### Next Steps
+
+- Perform the documented live maintenance-window migration and disposable acceptance when the production operator is ready; no further feature milestone remains in `.agents/PLAN_CHESTS.md`.

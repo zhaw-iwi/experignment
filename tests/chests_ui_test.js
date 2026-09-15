@@ -230,7 +230,7 @@ async function testReducedMotionAndQueue() {
     assert.equal(elements.stage.classList.contains("is-bursting"), false);
     assert.equal(elements.stage.getAttribute("aria-busy"), null);
     assert.equal(acknowledgementCount, 1, "duplicate activation should acknowledge once");
-    assert.equal(elements.title.focused, true, "the semantic result heading should receive focus");
+    assert.equal(elements.continueButton.focused, true, "the primary next action should receive focus after settlement");
 
     await controller.continue();
     assert.equal(controller.phase, "closed");

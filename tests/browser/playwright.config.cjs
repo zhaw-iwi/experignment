@@ -7,7 +7,7 @@ if (!process.env.POINTS_TEST_BASE_URL || !process.env.POINTS_TEST_ARTIFACT_DIR) 
 
 module.exports = defineConfig({
     testDir: __dirname,
-    testMatch: "student-points.spec.cjs",
+    testMatch: ["student-points.spec.cjs", "student-chests.spec.cjs"],
     fullyParallel: false,
     workers: 1,
     retries: 0,

@@ -241,6 +241,7 @@ The student UI should:
 - `package.json`, `package-lock.json`: pinned Playwright, Chromium-test, and local Bootstrap test dependencies.
 - `tests/browser/run.mjs`: isolated browser-test orchestrator that owns temporary SQLite, environment, server, and artifact resources.
 - `tests/browser/student-points.spec.cjs`: desktop/mobile student progress DOM, accessibility, layout, and screenshot coverage.
+- `tests/browser/student-chests.spec.cjs`: no/single/multiple event, full/reduced motion, duplicate activation, FIFO/reset, cancellation, slow/failing acknowledgement, multi-tab, keyboard/focus, local-asset, responsive, and screenshot coverage.
 - `tests/chests_ui_test.js`: pure controller, timing, queue, cancellation, retry, reduced-motion, and local asset checks.
 - `.agents/PROJECT.md`: milestone audit trail.
 
@@ -272,7 +273,7 @@ Run:
 `chests_ui_test.js` covers full/reduced timing branches, local asset mapping and decoding metadata, duplicate activation, queue reset, retry, and stale callback isolation.
 `js_regression_test.php` catches management- and student-client regressions that JavaScript syntax checking would miss, including pool-rendering references to grading-only variables, progress accessibility/containment markup, and chest semantics/choreography guards.
 The API smoke test uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable. When SQLite support is available, it covers authentication, grouped rosters and access-code provisioning, course audiences, availability schedules, participant limits, readiness, private notes, undated slots, student claim/retrieval, slot capacity, management setup, eligibility guards, condition assignment, bundled pool import, staff-entered access values, dynamic uncapped reward confirmation, course-specific targets and percentages, audit events, participation reset, randomization, and the cross-experiment approval report.
-The Playwright harness uses a temporary SQLite database and an explicitly selected temporary environment file. It replaces external CDN requests with the pinned local Bootstrap package and covers Course A below/above its 8-point target, Course B against its independent 10-point target, fractional rewards, missing/zero targets, ARIA progress values, bar containment, and mobile layout.
+The Playwright harness uses a temporary SQLite database and an explicitly selected temporary environment file. It replaces external CDN requests with the pinned local Bootstrap package and covers Course A below/above its 8-point target, Course B against its independent 10-point target, fractional rewards, missing/zero targets, ARIA progress values, and mobile layout. Chest cases cover empty/single/multiple queues, FIFO/reset, exact normal-motion classes/timing, immediate reduced motion, duplicate activation, stale-timer cancellation, slow/failing acknowledgement, retry, session restoration, multi-tab idempotency, keyboard focus, long mobile content, local image decoding, and stable screenshots.
 
 On the current development machine as last observed:
 
@@ -282,7 +283,7 @@ On the current development machine as last observed:
 - `js_regression_test.php` passed.
 - `api_smoke_test.php` passed after enabling `pdo_sqlite` in the active PHP `php.ini`.
 - `node tests/points_ui_test.js` passed.
-- Seven isolated Chromium student-overview scenarios passed at desktop and mobile viewports.
+- Sixteen isolated Chromium scenarios passed: nine student-chest cases and seven student-points cases at desktop/mobile viewports.
 - `node --check manage/manage.js` passed.
 - Clean `schema.sql` plus `seed.sql` imports passed on MariaDB 10.6.28, MariaDB 11.4.13, and MySQL 8.4.10.
 - Example-seed import followed by `reset_all_data.sql`, and full `drop_tables.sql` followed by rebuild, both passed.

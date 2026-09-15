@@ -186,7 +186,6 @@
             this.elements.prompt.textContent = "Truhe geöffnet.";
             this.elements.continueButton.hidden = false;
             this.elements.announcement.textContent = `Truhe geöffnet: Teilnahme an ${event.experimentName} angerechnet.`;
-            this.elements.title.focus({ preventScroll: true });
         }
 
         settle(reduced, token) {
@@ -200,6 +199,7 @@
             this.elements.stage.classList.add("is-open");
             this.elements.stage.removeAttribute("aria-busy");
             this.elements.continueButton.disabled = false;
+            this.elements.continueButton.focus({ preventScroll: true });
 
             if (reduced) {
                 this.elements.stage.classList.remove("is-charging", "is-bursting");
@@ -278,7 +278,7 @@
         }
 
         async continue() {
-            if (!this.current || (this.phase !== "open" && this.phase !== "revealed")) {
+            if (!this.current || this.phase !== "open") {
                 return;
             }
 

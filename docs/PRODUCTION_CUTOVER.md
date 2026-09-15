@@ -104,6 +104,8 @@ Use a dedicated test student in each relevant course and verify:
 - changing an experiment reward immediately updates totals for its existing confirmed participations;
 - Reports show course, dynamically calculated earned points, point target, and per-experiment `0`/`1` confirmation values;
 - the student overview shows earned points, the course target, and the true percentage; above-target percentages may exceed 100% while the visual bar remains contained;
+- one future confirmation creates one closed student chest, several confirmations while logged out create the same number of FIFO chests, and opening them does not change the already-effective points total;
+- full-motion and reduced-motion students receive the same credited-participation message, and a restored session shows the pending count without opening a modal automatically;
 - the audit card records the successful login, claim, slot, provisioning, and management actions without plaintext access codes;
 - logout works for both roles and a manually rotated student code revokes the old student session.
 
@@ -137,18 +139,27 @@ After deploying files, verify one test student below target and one above target
 
 ### Student Chest Persistence V4 Migration
 
-Database migration required: **yes** when upgrading an existing V3 installation. The current server creates chest events for future confirmations but does not backfill existing confirmations. The student-facing animated queue is delivered separately.
+Database migration required: **yes** when upgrading an existing V3 installation. The complete V4 application creates chest events only for future confirmations and deliberately does not backfill historical confirmations.
 
-1. Take and verify a full live database backup.
-2. In phpMyAdmin, run the commented precondition queries at the top of `database/migrations/2026-09-15-student-chests/migration.sql`.
-3. Require schema version `3` and no existing `student_chest_events` table.
-4. Import that exact migration file.
-5. Run its post-migration queries and require schema version `4`, the documented table definition, and `chest_event_count = 0`.
-6. Deploy the matching V4 application files and run the deployment preflight without `--expect-empty` on an active installation. Do not deploy the confirmation/API files before the migration succeeds.
-7. Confirm one designated test participation and verify through the authenticated student API that exactly one pending event exists; repeat the confirmation request and verify the count remains one.
+Use this migration-first order for the live in-place upgrade:
 
-The migration uses MySQL DDL, which auto-commits. It intentionally fails on a rerun rather than silently accepting an incompatible table. If it fails partway through, inspect the error and restore the verified backup before retrying. Once future milestones create chest history, rolling application files back should leave the V4 table intact; do not drop student history simply to report an older schema version.
+1. Put the normal application-file backup and a verified full database backup in place.
+2. In phpMyAdmin, run the read-only V3 precondition queries at the top of `database/migrations/2026-09-15-student-chests/migration.sql`; require schema version `3` and confirm that `student_chest_events` does not already exist.
+3. Execute that exact `migration.sql` file through phpMyAdmin.
+4. Run the migration's verification queries and require schema version `4`, the documented columns and indexes, and `chest_event_count = 0`.
+5. Deploy the matching V4 application files immediately after the migration. Do not deploy the V4 confirmation or chest files before the table exists.
+6. Run `php scripts/deployment_preflight.php` against the live configuration without `--expect-empty` for an active installation. If the host has no console, use the protected browser preflight as described in section 4 and disable it again immediately.
+7. Using only an explicitly designated disposable/test participation, confirm it once and verify exactly one pending chest for that student.
+8. Sign in as that student, open the chest, and verify the current points overview is still correct; chest opening must not change the points that became effective at confirmation.
+9. Repeat the same confirmation request and verify that no second chest appears.
+10. Remove or reset only the explicitly designated test data using the normal management reset path; do not run a broad reset against the live semester.
+
+Applying the additive migration while V3 is still serving is safe because V3 ignores the extra table. Deploying V4 application files before the migration is not safe because confirmation and chest endpoints require the table. Keep the interval between steps 3 and 5 short and prevent grading changes during the maintenance window.
+
+The migration uses MySQL DDL, which auto-commits. It intentionally fails on a rerun rather than silently accepting an incompatible table. If it fails partway through, inspect the error and restore the verified pre-migration backup before retrying.
+
+If application rollback is needed after chest events exist, restore the previous application files and leave the V4 table and schema-version record intact. V3 ignores the additional table, and retaining it preserves student history. Do not drop chest rows merely to report schema version 3. Restore the database backup only when losing every roster, participation, confirmation, and chest change made after that backup is explicitly acceptable.
 
 ## 7. Rollback
 
-With the recommended separate-database approach, put the site in maintenance mode, restore the previous deployed files and previous private configuration, and point them back to the archived database. With an in-place rebuild or failed V3-to-V4 migration, restore the database export before restoring the previous files. Never deploy application files that require V4 against a V3 schema.
+With the recommended separate-database approach, put the site in maintenance mode, restore the previous deployed files and previous private configuration, and point them back to the archived database. With an in-place rebuild or failed V3-to-V4 migration, restore the database export before restoring the previous files. After a successful V4 migration that has begun receiving chest events, prefer an application-only rollback that leaves the additive table intact. Never deploy application files that require V4 against a V3 schema.

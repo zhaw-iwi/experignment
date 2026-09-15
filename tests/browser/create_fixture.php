@@ -143,6 +143,14 @@ $students = [
     ['courseb@students.zhaw.ch', 2, 'courseb1'],
     ['missing@students.zhaw.ch', 3, 'missing1'],
     ['zero@students.zhaw.ch', 4, 'zero1'],
+    ['chestfull@students.zhaw.ch', 1, 'full1'],
+    ['chestmulti@students.zhaw.ch', 1, 'multi1'],
+    ['chestreduced@students.zhaw.ch', 1, 'reduce1'],
+    ['chestcleanup@students.zhaw.ch', 1, 'clean1'],
+    ['chestslow@students.zhaw.ch', 1, 'slow1'],
+    ['chestretry@students.zhaw.ch', 1, 'retry1'],
+    ['chestrestore@students.zhaw.ch', 1, 'restore1'],
+    ['chesttabs@students.zhaw.ch', 1, 'tabs1'],
 ];
 $insertStudent = $pdo->prepare(
     'INSERT INTO allowed_students
@@ -159,7 +167,8 @@ $pdo->exec("INSERT INTO experiments
     (1, 'One Point Study', 'One course-independent point', 1, NULL, 1, 'all_allowed', 'none', 0, 10),
     (2, 'Fractional Study', 'A 1.4-point reward', 1, NULL, 1.4, 'all_allowed', 'none', 0, 20),
     (3, 'Four Point Study', 'A four-point reward', 1, NULL, 4, 'all_allowed', 'none', 0, 30),
-    (4, 'Eight Point Bonus', 'Can take a total beyond its target', 1, NULL, 8, 'all_allowed', 'none', 0, 40)");
+    (4, 'Eight Point Bonus', 'Can take a total beyond its target', 1, NULL, 8, 'all_allowed', 'none', 0, 40),
+    (5, 'Langzeitstudie zur verständlichen Entscheidungsfindung unter aussergewöhnlich komplexen Bedingungen', 'Long localized browser fixture', 1, NULL, 0.25, 'all_allowed', 'none', 0, 50)");
 
 $confirmations = [
     [2, 'below@students.zhaw.ch'],
@@ -177,5 +186,33 @@ $insertParticipation = $pdo->prepare(
 foreach ($confirmations as [$experimentId, $email]) {
     $insertParticipation->execute([$experimentId, $email]);
 }
+
+$pdo->exec("INSERT INTO participations
+    (id, experiment_id, student_email, assigned_at, confirmed_at)
+    VALUES
+    (101, 1, 'chestfull@students.zhaw.ch', '2026-09-15 10:00:00', '2026-09-15 10:00:00'),
+    (102, 1, 'chestmulti@students.zhaw.ch', '2026-09-15 09:00:00', '2026-09-15 09:00:00'),
+    (103, 2, 'chestmulti@students.zhaw.ch', '2026-09-15 10:00:00', '2026-09-15 10:00:00'),
+    (104, 3, 'chestreduced@students.zhaw.ch', '2026-09-15 10:00:00', '2026-09-15 10:00:00'),
+    (105, 1, 'chestcleanup@students.zhaw.ch', '2026-09-15 09:00:00', '2026-09-15 09:00:00'),
+    (106, 3, 'chestcleanup@students.zhaw.ch', '2026-09-15 10:00:00', '2026-09-15 10:00:00'),
+    (107, 2, 'chestslow@students.zhaw.ch', '2026-09-15 10:00:00', '2026-09-15 10:00:00'),
+    (108, 5, 'chestretry@students.zhaw.ch', '2026-09-15 10:00:00', '2026-09-15 10:00:00'),
+    (109, 3, 'chestrestore@students.zhaw.ch', '2026-09-15 10:00:00', '2026-09-15 10:00:00'),
+    (110, 4, 'chesttabs@students.zhaw.ch', '2026-09-15 10:00:00', '2026-09-15 10:00:00')");
+
+$pdo->exec("INSERT INTO student_chest_events
+    (id, student_email, source_participation_id, event_type, trigger_scope, variant, experiment_name_snapshot, earned_at)
+    VALUES
+    (201, 'chestfull@students.zhaw.ch', 101, 'participation_credited', 'participation:101', 'gold', 'One Point Study', '2026-09-15 10:00:00'),
+    (202, 'chestmulti@students.zhaw.ch', 102, 'participation_credited', 'participation:102', 'gold', 'One Point Study', '2026-09-15 09:00:00'),
+    (203, 'chestmulti@students.zhaw.ch', 103, 'participation_credited', 'participation:103', 'gold', 'Fractional Study', '2026-09-15 10:00:00'),
+    (204, 'chestreduced@students.zhaw.ch', 104, 'participation_credited', 'participation:104', 'gold', 'Four Point Study', '2026-09-15 10:00:00'),
+    (205, 'chestcleanup@students.zhaw.ch', 105, 'participation_credited', 'participation:105', 'gold', 'One Point Study', '2026-09-15 09:00:00'),
+    (206, 'chestcleanup@students.zhaw.ch', 106, 'participation_credited', 'participation:106', 'gold', 'Four Point Study', '2026-09-15 10:00:00'),
+    (207, 'chestslow@students.zhaw.ch', 107, 'participation_credited', 'participation:107', 'gold', 'Fractional Study', '2026-09-15 10:00:00'),
+    (208, 'chestretry@students.zhaw.ch', 108, 'participation_credited', 'participation:108', 'gold', 'Langzeitstudie zur verständlichen Entscheidungsfindung unter aussergewöhnlich komplexen Bedingungen', '2026-09-15 10:00:00'),
+    (209, 'chestrestore@students.zhaw.ch', 109, 'participation_credited', 'participation:109', 'gold', 'Four Point Study', '2026-09-15 10:00:00'),
+    (210, 'chesttabs@students.zhaw.ch', 110, 'participation_credited', 'participation:110', 'gold', 'Eight Point Bonus', '2026-09-15 10:00:00')");
 
 fwrite(STDOUT, "browser fixture ready\n");

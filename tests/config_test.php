@@ -87,7 +87,7 @@ foreach (['.env.example', '.env.test.example'] as $exampleName) {
     $exampleContent = file_get_contents(__DIR__ . '/../' . $exampleName);
     assert_config_value(is_string($exampleContent), true, 'read ' . $exampleName);
     assert_config_value(
-        preg_match('/^PREFLIGHT_ENABLED=false$/m', (string) $exampleContent) === 1,
+        preg_match('/^PREFLIGHT_ENABLED=false\r?$/m', (string) $exampleContent) === 1,
         true,
         $exampleName . ' disables browser preflight by default'
     );

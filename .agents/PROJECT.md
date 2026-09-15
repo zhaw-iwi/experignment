@@ -29,6 +29,7 @@ Experiment Assignment App is a PHP/MySQL application for managing student experi
 - [x] 2026-09-09: Local database test environment template
 - [x] 2026-09-09: Local MySQL integration acceptance
 - [x] 2026-09-09: Protected browser deployment preflight
+- [x] 2026-09-15: Student points visualization plan and green baseline
 - [ ] Clean production deployment and semester activation
 
 ## 2026-05-11: V2 Greenfield Multi-Experiment Implementation
@@ -1214,3 +1215,50 @@ Observed on 2026-09-09:
 ### Next Steps
 
 - Deploy, run the browser preflight, disable it, and continue the semester activation checklist.
+
+## 2026-09-15: Student Points Visualization Plan And Green Baseline
+
+### Goal
+
+Define the live-safe delivery plan for dynamic uncapped student points and establish a reproducible green baseline before changing grading behavior.
+
+### What Changed
+
+- Added `.agents/PLAN_POINTSVISUAL.md` with confirmed product decisions, database constraints, testable milestones, browser and local-MySQL coverage, deployment safeguards, and commit boundaries.
+- Kept the feature schema-compatible so the live deployment is not expected to require a database migration.
+- Made the environment-template regression in `tests/config_test.php` accept both LF and CRLF line endings.
+- Confirmed the ignored root `.env` remained untouched and excluded from version control.
+
+### How To Run
+
+No runtime behavior changed in this milestone.
+
+### How To Test
+
+- `Get-ChildItem -Recurse -Filter *.php | ForEach-Object { php -l $_.FullName }`
+- `node --check assets/app.js`
+- `node --check manage/manage.js`
+- `php tests/config_test.php`
+- `php tests/schema_test.php`
+- `php tests/validation_test.php`
+- `php tests/text_quality_test.php`
+- `php tests/js_regression_test.php`
+- `php tests/api_smoke_test.php`
+
+Observed on 2026-09-15:
+
+- Every PHP file passed syntax validation.
+- Both browser JavaScript applications passed syntax validation.
+- All six PHP test scripts passed, including the SQLite-backed authenticated API smoke test.
+- `git diff --check` passed.
+
+### Known Issues And Decisions
+
+- The CRLF failure was a test portability issue; both tracked environment templates already disabled browser preflight correctly.
+- No application behavior or database state changed.
+- No database migration is required for this milestone.
+- Automated destructive database tests must use an explicit reset-approved `.env.test` target and must never use the live `.env`.
+
+### Next Steps
+
+- Implement Milestone 1 from `.agents/PLAN_POINTSVISUAL.md`: dynamic uncapped reward semantics across student overview, management operations, dashboard, and reports.

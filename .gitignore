@@ -7,6 +7,9 @@
 /database/e93ud_*.sql
 /database/live_database*.sql
 /temp/
+/node_modules/
+/test-results/
+/playwright-report/
 
 # Local runtime artifacts.
 *.log

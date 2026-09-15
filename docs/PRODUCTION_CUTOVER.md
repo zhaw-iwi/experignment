@@ -82,7 +82,7 @@ Also verify these HTTP boundaries before importing student data:
 ## 5. Activate The Semester
 
 1. Sign in to the management UI with the new administrator code.
-2. Create courses and set the maximum points for each, or let roster import create the course labels and then complete their maxima.
+2. Create courses and set the point target for each, or let roster import create the course labels and then complete their targets.
 3. Import the roster using `email;group` headers. Re-importing is an upsert; omitted students are retained.
 4. Compare the displayed per-course and total student counts with the source roster.
 5. Select **Fehlende Codes erstellen und CSV laden** once. Store the downloaded CSV securely and distribute each code only to its matching email address.
@@ -100,12 +100,40 @@ Use a dedicated test student in each relevant course and verify:
 - future, expired, manually closed, and full experiments cannot be claimed;
 - a claim reveals the intended bundled/shared/staff-entered access values;
 - dated and explicit `Ohne Termin` slots can be selected and capacity is enforced;
-- administrator confirmation awards the configured reward, including partial and zero rewards at the course maximum;
-- Reports show course, earned points, maximum, and per-experiment `0`/`1` confirmation values;
+- administrator confirmation awards the experiment's full current reward even when the course target is reached or exceeded;
+- changing an experiment reward immediately updates totals for its existing confirmed participations;
+- Reports show course, dynamically calculated earned points, point target, and per-experiment `0`/`1` confirmation values;
+- the student overview shows earned points, the course target, and the true percentage; above-target percentages may exceed 100% while the visual bar remains contained;
 - the audit card records the successful login, claim, slot, provisioning, and management actions without plaintext access codes;
 - logout works for both roles and a manually rotated student code revokes the old student session.
 
 Remove or close temporary acceptance experiments after testing. Retain the old rollback backup until the administrator has signed off the roster counts, one-time code delivery, audience rules, a real claim, grading totals, and audit visibility.
+
+### Student Points Visualization Release
+
+Database migration required: **no**. This update continues using the V3 `student_groups.max_credits`, `allowed_students.group_id`, `experiments.reward_credits`, and `participations.confirmed_at` columns. The nullable reward-snapshot column remains for compatibility but is not used for totals.
+
+Before deploying the application files, take a verified live backup and run these read-only checks in phpMyAdmin:
+
+```sql
+SELECT MAX(version_number) AS schema_version
+FROM schema_versions;
+
+SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, NUMERIC_PRECISION, NUMERIC_SCALE
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND (
+      (TABLE_NAME = 'student_groups' AND COLUMN_NAME = 'max_credits')
+      OR (TABLE_NAME = 'allowed_students' AND COLUMN_NAME = 'group_id')
+      OR (TABLE_NAME = 'experiments' AND COLUMN_NAME = 'reward_credits')
+      OR (TABLE_NAME = 'participations' AND COLUMN_NAME IN ('confirmed_at', 'reward_credits_snapshot'))
+  )
+ORDER BY TABLE_NAME, COLUMN_NAME;
+```
+
+Require schema version `3` and all five listed columns. If those checks fail, stop and plan the V3 upgrade separately. Do not apply a database change as part of this feature.
+
+After deploying files, verify one test student below target and one above target without placing student credentials in screenshots or logs. Confirm the report totals match the student cards. If acceptance fails, restore the previous application files; this feature requires no database rollback.
 
 ## 7. Rollback
 

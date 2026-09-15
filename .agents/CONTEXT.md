@@ -225,6 +225,9 @@ The student UI should:
 - `assets/app.js`: student UI logic.
 - `assets/points.js`: pure student point formatting, target-state, progress-clamping, and experiment-reward display helpers.
 - `manage/manage.js`: staff UI logic.
+- `package.json`, `package-lock.json`: pinned Playwright, Chromium-test, and local Bootstrap test dependencies.
+- `tests/browser/run.mjs`: isolated browser-test orchestrator that owns temporary SQLite, environment, server, and artifact resources.
+- `tests/browser/student-points.spec.cjs`: desktop/mobile student progress DOM, accessibility, layout, and screenshot coverage.
 - `.agents/PROJECT.md`: milestone audit trail.
 
 ## Deployment And Configuration
@@ -248,10 +251,12 @@ Run:
 - `php tests/js_regression_test.php`
 - `php tests/api_smoke_test.php`
 - `node tests/points_ui_test.js`
+- `npm run test:browser`
 
 `points_ui_test.js` covers fractional formatting, exact and above-target percentages, progress-width clamping, missing/zero targets, and reward display before and after confirmation.
 `js_regression_test.php` catches management- and student-client regressions that JavaScript syntax checking would miss, including pool-rendering references to grading-only variables and required progress accessibility/containment markup.
 The API smoke test uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable. When SQLite support is available, it covers authentication, grouped rosters and access-code provisioning, course audiences, availability schedules, participant limits, readiness, private notes, undated slots, student claim/retrieval, slot capacity, management setup, eligibility guards, condition assignment, bundled pool import, staff-entered access values, dynamic uncapped reward confirmation, course-specific targets and percentages, audit events, participation reset, randomization, and the cross-experiment approval report.
+The Playwright harness uses a temporary SQLite database and an explicitly selected temporary environment file. It replaces external CDN requests with the pinned local Bootstrap package and covers Course A below/above its 8-point target, Course B against its independent 10-point target, fractional rewards, missing/zero targets, ARIA progress values, bar containment, and mobile layout.
 
 On the current development machine as last observed:
 
@@ -261,6 +266,7 @@ On the current development machine as last observed:
 - `js_regression_test.php` passed.
 - `api_smoke_test.php` passed after enabling `pdo_sqlite` in the active PHP `php.ini`.
 - `node tests/points_ui_test.js` passed.
+- Seven isolated Chromium student-overview scenarios passed at desktop and mobile viewports.
 - `node --check manage/manage.js` passed.
 - Clean `schema.sql` plus `seed.sql` imports passed on MariaDB 10.6.28, MariaDB 11.4.13, and MySQL 8.4.10.
 - Example-seed import followed by `reset_all_data.sql`, and full `drop_tables.sql` followed by rebuild, both passed.
@@ -270,6 +276,7 @@ On the current development machine as last observed:
 
 ## Known Deferred Work
 
-- Complete the clean MySQL/MariaDB production cutover and browser QA against the deployed environment.
+- Complete the clean MySQL/MariaDB production cutover and deployed-browser QA.
+- Re-run the dynamic reward HTTP acceptance against a dedicated reset-approved local MySQL target when `.env.test` is available; the current isolated acceptance uses SQLite because no `.env.test` is present.
 - Production access is not present in the repository: there is no deployment workflow, private `.env`, or production database/file-host credential in this workspace.
 - More granular automated tests for management actions.

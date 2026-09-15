@@ -169,6 +169,7 @@ php tests/text_quality_test.php
 php tests/js_regression_test.php
 php tests/api_smoke_test.php
 node tests/points_ui_test.js
+npm run test:browser
 ```
 
 `points_ui_test.js` covers decimal point formatting, target states, visible percentages, visual-width clamping, and reward display before and after confirmation.
@@ -177,3 +178,5 @@ node tests/points_ui_test.js
 When SQLite support is available, it covers student and administrator authentication, session-bound identity, CSRF enforcement, grouped roster upserts, course guards, one-time generated-code CSV delivery, hash-only persistence, manual code rotation, login-code session revocation, course-targeted experiment visibility, opening schedules, participant maxima, ready-to-open validation, private notes, explicit undated slots, the student claim/retrieval flow, slot capacity enforcement, management setup actions, allowlist removal guards, participant selection and clearing, condition assignment and clearing, access-pool import, staff-entered access values, dynamic uncapped rewards, course-specific targets and percentages, confirmation, bulk grading operations, appointment retrieval, reset, randomization, audit events, and the management approval report endpoint.
 The report coverage includes the distinction between opened access and confirmed `Angerechnet` approval as well as dynamically calculated totals and course targets.
 The smoke test also verifies browser-preflight enablement, CSRF and administrator-code protection, direct-web rejection of the CLI script, and execution of the shared check implementation.
+
+Install browser-test dependencies once with `npm install` and `npx playwright install chromium`. `npm run test:browser` creates a temporary SQLite fixture and a temporary explicit environment file, removes inherited application-database settings, serves the app locally, replaces CDN requests with the pinned local Bootstrap package, runs desktop/mobile Chromium assertions, and removes its database, environment, session, server, and default screenshot artifacts afterward. It never selects the root `.env`. Set `POINTS_TEST_ARTIFACT_DIR` to an external temporary directory only when screenshots or failure traces need manual review.

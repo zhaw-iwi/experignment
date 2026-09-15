@@ -32,6 +32,7 @@ Experiment Assignment App is a PHP/MySQL application for managing student experi
 - [x] 2026-09-15: Student points visualization plan and green baseline
 - [x] 2026-09-15: Dynamic uncapped reward semantics
 - [x] 2026-09-15: Accessible student points visualization
+- [x] 2026-09-15: Isolated browser and deployment acceptance
 - [ ] Clean production deployment and semester activation
 
 ## 2026-05-11: V2 Greenfield Multi-Experiment Implementation
@@ -1370,3 +1371,69 @@ Observed on 2026-09-15:
 ### Next Steps
 
 - Implement Milestone 3 from `.agents/PLAN_POINTSVISUAL.md`: repeatable Playwright coverage, disposable test data, browser QA, and live-safe deployment verification.
+
+## 2026-09-15: Isolated Browser And Deployment Acceptance
+
+### Goal
+
+Make student-points browser verification reproducible without touching live configuration or data, and provide an explicit application-files-only deployment handoff.
+
+### What Changed
+
+- Added pinned Playwright and Bootstrap test dependencies plus repository-local browser test commands.
+- Added deterministic temporary SQLite fixtures for Course A with an 8-point target, Course B with a 10-point target, fractional rewards, above-target totals, and missing/zero targets.
+- Added an isolated browser runner that creates and removes its own database and environment file, strips inherited application database settings, starts and stops a local PHP server, and never selects the root `.env`.
+- Replaced test-time CDN requests with the pinned local Bootstrap package so browser assertions do not depend on external network access.
+- Added seven Chromium scenarios covering desktop/mobile rendering, course-specific totals, current rewards, true percentages above 100%, clamped bar geometry, ARIA values, and missing/zero-target states.
+- Fixed a mobile navigation overflow exposed by the first browser pass by wrapping session controls and constraining long email badges.
+- Updated the production cutover guide with the dynamic reward acceptance flow, read-only phpMyAdmin schema-verification queries, file-only rollback, and the explicit declaration `Database migration required: no`.
+
+### How To Run
+
+1. Run `npm install`.
+2. Run `npx playwright install chromium` once on the test machine.
+3. Run `npm run test:browser`.
+
+The default run removes all generated resources. Set `POINTS_TEST_ARTIFACT_DIR` to an external temporary directory only for manual screenshot/trace review.
+
+### How To Test
+
+- `Get-ChildItem -Recurse -Filter *.php | ForEach-Object { php -l $_.FullName }`
+- `node --check assets/points.js`
+- `node --check assets/app.js`
+- `node --check manage/manage.js`
+- `node --check tests/points_ui_test.js`
+- `node --check tests/browser/run.mjs`
+- `node --check tests/browser/playwright.config.cjs`
+- `node --check tests/browser/student-points.spec.cjs`
+- `node tests/points_ui_test.js`
+- `php tests/config_test.php`
+- `php tests/schema_test.php`
+- `php tests/validation_test.php`
+- `php tests/text_quality_test.php`
+- `php tests/js_regression_test.php`
+- `php tests/api_smoke_test.php`
+- `npm run test:browser`
+
+Observed on 2026-09-15:
+
+- The first Chromium run passed six scenarios and exposed a 25-pixel mobile overflow caused by the long session email in the top navigation.
+- After the responsive navigation fix, all seven Chromium scenarios passed.
+- Desktop below-target and desktop/mobile above-target screenshots were reviewed manually; the values, progress geometry, table rewards, and responsive layout were correct.
+- Every application and test PHP file passed syntax validation.
+- All application, helper, runner, configuration, and browser-spec JavaScript files passed syntax validation.
+- The pure points test and all six PHP test scripts passed, including the SQLite-backed authenticated API smoke test.
+- A final isolated Chromium run passed all seven desktop/mobile scenarios and cleaned its default runtime resources.
+- `git diff --check` passed; no test-results or Playwright-report directory remained in the worktree, and `.env`, `.env.test`, and `node_modules` remained ignored.
+
+### Known Issues And Decisions
+
+- No ignored `.env.test` exists in this workspace, so a destructive local MySQL acceptance rerun was not authorized or attempted. Existing MySQL V3 acceptance predates the dynamic semantics; run the new flow against a dedicated reset-approved local target when one is available.
+- Production credentials and production access are not present in the repository, so live schema and student-scenario verification remain deployment steps for the owner.
+- The browser runner's temporary fixture database, explicit environment file, PHP server, and default artifacts are always cleaned up.
+- The optional external screenshot directory used for manual review is outside the repository and contains deterministic test identities only.
+- There is no schema change and no phpMyAdmin migration script.
+
+### Next Steps
+
+- Follow `docs/PRODUCTION_CUTOVER.md`: take a live backup, run the read-only V3 schema checks, deploy application files, and verify one below-target and one above-target test student before general use.

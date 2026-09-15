@@ -1,0 +1,12 @@
+{
+  "name": "experignment",
+  "private": true,
+  "scripts": {
+    "test:points": "node tests/points_ui_test.js",
+    "test:browser": "node tests/browser/run.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "bootstrap": "5.3.3"
+  }
+}

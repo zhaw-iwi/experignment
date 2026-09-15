@@ -27,6 +27,16 @@ body {
     font-weight: 700;
 }
 
+#studentSessionControls {
+    min-width: 0;
+}
+
+#currentEmailBadge {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .student-content {
     width: 100%;
     max-width: 1080px;
@@ -195,6 +205,20 @@ body {
 }
 
 @media (max-width: 575.98px) {
+    .student-navbar-inner {
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }
+
+    #studentSessionControls {
+        justify-content: space-between;
+        width: 100%;
+    }
+
+    #currentEmailBadge {
+        max-width: calc(100% - 5.5rem);
+    }
+
     .points-metrics {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }

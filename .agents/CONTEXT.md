@@ -46,6 +46,9 @@ The deployed behavior began as V2, a greenfield continuation of an older one-exp
 - The administrator UI will use a hashed access code configured through `.env` and a protected server-side session.
 - Staff cannot manually open an experiment while a required readiness indicator is incomplete. Course audience, course point targets, student codes, condition setup/assignment, access-data completeness, and required slot capacity are blocking checks; no schedule and no participant maximum are warnings.
 - `confirmed_at` is the grading-status gate. Student, dashboard, and report totals join confirmed participations to the current `experiments.reward_credits`; the legacy nullable `reward_credits_snapshot` column is ignored for totals and cleared by confirmation changes.
+- Every future false-to-true confirmation atomically creates or reactivates one `participation_credited` row in `student_chest_events`. Its immutable trigger scope is the participation ID, and opening the chest only acknowledges an already-earned credit.
+- Historical confirmations are not backfilled. Pending chest reads and idempotent opening are scoped exclusively to the authenticated student; opened and revoked rows remain as history.
+- Unconfirming revokes an unopened chest, reconfirming reactivates that same unopened row, and an already-opened participation can never earn a second chest. Participation resets detach history and revoke only unopened events.
 - Participation and full reward credit remain possible after the course point target has been reached.
 - Explicitly undated time slots have no start/end values and are the supported `Kein passender Termin` option.
 - The audit log records successful authentication, student participation, code provisioning, and management actions without storing plaintext access codes.
@@ -213,7 +216,10 @@ The student UI should:
 - `preflight/index.php`: disabled-by-default browser interface for the shared preflight, gated by `PREFLIGHT_ENABLED`, HTTPS, CSRF, and the administrator access code.
 - `docs/PRODUCTION_CUTOVER.md`: canonical phpMyAdmin deployment, semester activation, acceptance, and rollback checklist.
 - `api/_auth.php`: shared secure-session, authorization, CSRF, access-code validation, and throttling helpers.
+- `api/_chests.php`: durable chest trigger, lifecycle, query, and acknowledgement helpers.
 - `api/student_login.php`, `api/student_session.php`, `api/student_logout.php`: student authentication lifecycle.
+- `api/student_chests.php`: authenticated pending/history chest read endpoint.
+- `api/open_student_chest.php`: authenticated, CSRF-protected, idempotent chest acknowledgement endpoint.
 - `api/manage/login.php`, `api/manage/session.php`, `api/manage/logout.php`: administrator authentication lifecycle.
 - `api/_bootstrap.php`: shared API helpers and domain read helpers.
 - `api/student_overview.php`: student overview endpoint.

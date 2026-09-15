@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../_bootstrap.php';
+require_once __DIR__ . '/../_chests.php';
 
 require_method('POST');
 $adminAuth = require_admin_authentication();
@@ -22,24 +23,35 @@ schedule_successful_audit_event($pdo, 'admin', 'admin', 'reset_student', 'studen
     'experimentId' => $experimentId,
 ]);
 
-$sql = 'SELECT id, access_pool_row_id, assigned_at
-        FROM participations
-        WHERE student_email = :student_email';
-$params = ['student_email' => $email];
-if ($experimentId !== null) {
-    $sql .= ' AND experiment_id = :experiment_id';
-    $params['experiment_id'] = $experimentId;
-}
-
-$statement = $pdo->prepare($sql);
-$statement->execute($params);
-$participations = $statement->fetchAll();
-if ($participations === []) {
-    fail(404, 'EMAIL_NOT_FOUND', 'Für diese E-Mail-Adresse gibt es keinen zurücksetzbaren Eintrag.');
-}
-
 try {
     $pdo->beginTransaction();
+
+    $sql = 'SELECT id, access_pool_row_id, assigned_at
+            FROM participations
+            WHERE student_email = :student_email';
+    $params = ['student_email' => $email];
+    if ($experimentId !== null) {
+        $sql .= ' AND experiment_id = :experiment_id';
+        $params['experiment_id'] = $experimentId;
+    }
+    $sql .= ' ORDER BY id ASC' . for_update_sql($pdo);
+
+    $statement = $pdo->prepare($sql);
+    $statement->execute($params);
+    $participations = $statement->fetchAll();
+    if ($participations === []) {
+        $pdo->rollBack();
+        fail(404, 'EMAIL_NOT_FOUND', 'Für diese E-Mail-Adresse gibt es keinen zurücksetzbaren Eintrag.');
+    }
+
+    revoke_unopened_participation_chests(
+        $pdo,
+        array_map(static fn (array $participation): int => (int) $participation['id'], $participations)
+    );
+    detach_participation_chests(
+        $pdo,
+        array_map(static fn (array $participation): int => (int) $participation['id'], $participations)
+    );
 
     foreach ($participations as $participation) {
         $poolRowId = nullable_int($participation['access_pool_row_id'] ?? null);

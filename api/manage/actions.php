@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../_bootstrap.php';
+require_once __DIR__ . '/../_chests.php';
 
 require_method('POST');
 $adminAuth = require_admin_authentication();
@@ -462,7 +463,7 @@ function participation_count_for_experiment(PDO $pdo, int $experimentId): int
 function update_participation_confirmation(PDO $pdo, int $participationId, bool $confirm): array
 {
     $statement = $pdo->prepare(
-        'SELECT p.id, p.student_email, p.confirmed_at, e.reward_credits
+        'SELECT p.id, p.student_email, p.confirmed_at, e.reward_credits, e.public_name
          FROM participations p
          INNER JOIN experiments e ON e.id = p.experiment_id
          WHERE p.id = :id
@@ -482,6 +483,7 @@ function update_participation_confirmation(PDO $pdo, int $participationId, bool 
              WHERE id = :id'
         );
         $update->execute(['id' => $participationId]);
+        revoke_unopened_participation_chests($pdo, [$participationId]);
         return [
             'found' => true,
             'changed' => ($participation['confirmed_at'] ?? null) !== null,
@@ -508,6 +510,17 @@ function update_participation_confirmation(PDO $pdo, int $participationId, bool 
          WHERE id = :id'
     );
     $update->execute(['id' => $participationId]);
+    try {
+        create_or_reactivate_participation_chest(
+            $pdo,
+            $participationId,
+            (string) $participation['student_email'],
+            (string) $participation['public_name']
+        );
+    } catch (Throwable $throwable) {
+        error_log('Student chest creation failed for participation ' . $participationId . '.');
+        throw $throwable;
+    }
 
     return [
         'found' => true,
@@ -982,6 +995,9 @@ try {
         }
 
         $pdo->beginTransaction();
+        $experimentParticipationIds = participation_ids_for_experiment($pdo, $experimentId, true);
+        revoke_unopened_participation_chests($pdo, $experimentParticipationIds);
+        detach_participation_chests($pdo, $experimentParticipationIds);
         $deleteParticipations = $pdo->prepare('DELETE FROM participations WHERE experiment_id = :experiment_id');
         $deleteParticipations->execute(['experiment_id' => $experimentId]);
         $deleteExperiment = $pdo->prepare('DELETE FROM experiments WHERE id = :id');
@@ -2063,6 +2079,20 @@ try {
         }
 
         $pdo->beginTransaction();
+        $lockParticipations = $pdo->prepare(
+            'SELECT id
+             FROM participations
+             WHERE experiment_id = :experiment_id
+               AND id IN (' . $idSql . ')
+             ORDER BY id ASC' . for_update_sql($pdo)
+        );
+        $lockParticipations->execute($scopedParams);
+        if (count($lockParticipations->fetchAll()) !== count($participationIds)) {
+            $pdo->rollBack();
+            fail(422, 'PARTICIPATION_SCOPE_MISMATCH', 'Die Auswahl enthält Zuweisungen aus einem anderen Experiment oder nicht mehr vorhandene Zuweisungen.');
+        }
+        revoke_unopened_participation_chests($pdo, $participationIds);
+        detach_participation_chests($pdo, $participationIds);
         $releasePoolRows = $pdo->prepare(
             'UPDATE access_pool_rows
              SET is_assigned = 0,
@@ -2172,14 +2202,22 @@ try {
         $participationId = required_int($payload['participationId'] ?? null, 'INVALID_PARTICIPATION', 'Bitte wählen Sie eine Zuweisung aus.');
         $releaseAccess = bool_value($payload['releaseAccess'] ?? true);
 
-        $statement = $pdo->prepare('SELECT * FROM participations WHERE id = :id LIMIT 1');
+        $pdo->beginTransaction();
+        $statement = $pdo->prepare(
+            'SELECT *
+             FROM participations
+             WHERE id = :id
+             LIMIT 1' . for_update_sql($pdo)
+        );
         $statement->execute(['id' => $participationId]);
         $participation = $statement->fetch();
         if ($participation === false) {
+            $pdo->rollBack();
             fail(404, 'PARTICIPATION_NOT_FOUND', 'Die Zuweisung wurde nicht gefunden.');
         }
 
-        $pdo->beginTransaction();
+        revoke_unopened_participation_chests($pdo, [$participationId]);
+        detach_participation_chests($pdo, [$participationId]);
         $deleteFieldValues = $pdo->prepare('DELETE FROM participation_field_values WHERE participation_id = :participation_id');
         $deleteFieldValues->execute(['participation_id' => $participationId]);
 

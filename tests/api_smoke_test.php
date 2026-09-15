@@ -644,6 +644,12 @@ try {
     $response = make_request($baseUrl, 'GET', '/api/student_overview.php');
     assert_equals($response['status'], 401, 'overview should require student authentication');
 
+    $response = make_request($baseUrl, 'GET', '/api/student_chests.php');
+    assert_equals($response['status'], 401, 'student chest list should require authentication');
+
+    $response = make_request($baseUrl, 'GET', '/api/open_student_chest.php');
+    assert_equals($response['status'], 405, 'student chest acknowledgement should require POST');
+
     $response = make_request($baseUrl, 'POST', '/api/student_login.php', [
         'email' => 'alice@students.zhaw.ch',
         'accessCode' => 'wrong1',
@@ -652,6 +658,15 @@ try {
     assert_equals($response['body']['error_code'] ?? null, 'AUTHENTICATION_FAILED', 'student login failure should be generic');
 
     login_student($baseUrl, 'alice@students.zhaw.ch', 'alice1');
+    $response = make_request($baseUrl, 'GET', '/api/student_chests.php?email=bob%40students.zhaw.ch');
+    assert_equals($response['status'], 200, 'authenticated student should be able to list chest state');
+    assert_equals($response['body']['pendingCount'] ?? null, 0, 'student should begin without historical chest backfill');
+    assert_equals(count($response['body']['events'] ?? []), 0, 'foreign query identity must not expose another student chests');
+
+    $response = make_request($baseUrl, 'GET', '/api/student_chests.php?status=invalid');
+    assert_equals($response['status'], 422, 'invalid student chest status should be rejected');
+    assert_equals($response['body']['error_code'] ?? null, 'INVALID_CHEST_STATUS', 'invalid chest status should be explicit');
+
     $response = make_request($baseUrl, 'GET', '/api/student_overview.php?email=bob%40students.zhaw.ch');
     assert_equals($response['status'], 200, 'overview should return 200');
     assert_equals($response['body']['email'] ?? null, 'alice@students.zhaw.ch', 'overview identity should come from the session');
@@ -763,6 +778,10 @@ try {
     assert_true($bobParticipationId > 0, 'bob participation id should exist');
     assert_true($charlieParticipationId > 0, 'charlie participation id should exist');
 
+    login_student($baseUrl, 'bob@students.zhaw.ch', 'bob22');
+    $response = make_request($baseUrl, 'GET', '/api/student_chests.php');
+    assert_equals($response['body']['pendingCount'] ?? null, 0, 'empty chest check must not suppress a later approval');
+
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'bulk_grading_operation',
         'experimentId' => 2,
@@ -774,7 +793,67 @@ try {
     assert_equals($response['body']['creditedRewards'][(string) $bobParticipationId] ?? null, 2, 'Course A student should receive the full experiment reward');
     assert_equals($response['body']['creditedRewards'][(string) $charlieParticipationId] ?? null, 2, 'Course B student should receive the same full experiment reward');
 
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'bulk_grading_operation',
+        'experimentId' => 2,
+        'operation' => 'confirm',
+        'participationIds' => [$bobParticipationId, $charlieParticipationId],
+    ]);
+    assert_equals($response['status'], 200, 'repeated bulk confirmation should be safe');
+    assert_equals($response['body']['affectedCount'] ?? null, 0, 'repeated bulk confirmation should change no participations');
+
     login_student($baseUrl, 'bob@students.zhaw.ch', 'bob22');
+    $response = make_request($baseUrl, 'GET', '/api/student_chests.php');
+    assert_equals($response['status'], 200, 'approved student should list pending chests');
+    assert_equals($response['body']['pendingCount'] ?? null, 1, 'one bulk approval should create one student chest');
+    assert_equals(count($response['body']['events'] ?? []), 1, 'repeated confirmation must not duplicate the chest');
+    $bobChest = $response['body']['events'][0] ?? [];
+    $bobChestId = (int) ($bobChest['id'] ?? 0);
+    assert_true($bobChestId > 0, 'pending chest should have a stable id');
+    assert_equals($bobChest['eventType'] ?? null, 'participation_credited', 'server should select the chest event type');
+    assert_equals($bobChest['variant'] ?? null, 'gold', 'server should select the initial chest variant');
+    assert_equals($bobChest['experimentName'] ?? null, 'Experiment 3', 'chest should snapshot the public experiment name');
+    assert_true(!array_key_exists('studentEmail', $bobChest), 'chest payload should not expose or accept ownership data');
+    assert_true(!array_key_exists('rewardCredits', $bobChest), 'chest should not freeze a misleading reward value');
+
+    $response = make_request(
+        $baseUrl,
+        'POST',
+        '/api/open_student_chest.php',
+        ['chestId' => $bobChestId],
+        false
+    );
+    assert_equals($response['status'], 403, 'chest acknowledgement should require CSRF');
+    assert_equals($response['body']['error_code'] ?? null, 'CSRF_TOKEN_INVALID', 'missing chest CSRF token should be explicit');
+
+    $response = make_request($baseUrl, 'POST', '/api/open_student_chest.php', []);
+    assert_equals($response['status'], 422, 'chest acknowledgement should require a positive id');
+    assert_equals($response['body']['error_code'] ?? null, 'INVALID_CHEST_ID', 'missing chest id should be explicit');
+
+    $response = make_request($baseUrl, 'POST', '/api/open_student_chest.php', [
+        'chestId' => $bobChestId,
+        'variant' => 'crystal',
+    ]);
+    assert_equals($response['status'], 422, 'chest acknowledgement should reject browser-selected fields');
+    assert_equals($response['body']['error_code'] ?? null, 'INVALID_CHEST_PAYLOAD', 'unknown chest payload fields should be explicit');
+
+    $response = make_request($baseUrl, 'POST', '/api/open_student_chest.php', ['chestId' => $bobChestId]);
+    assert_equals($response['status'], 200, 'student should acknowledge their pending chest');
+    assert_equals($response['body']['alreadyOpened'] ?? null, false, 'first acknowledgement should report a transition');
+    $bobOpenedAt = $response['body']['event']['openedAt'] ?? null;
+    assert_true(is_string($bobOpenedAt) && $bobOpenedAt !== '', 'first acknowledgement should persist opened time');
+
+    $response = make_request($baseUrl, 'POST', '/api/open_student_chest.php', ['chestId' => $bobChestId]);
+    assert_equals($response['status'], 200, 'duplicate acknowledgement should be idempotent');
+    assert_equals($response['body']['alreadyOpened'] ?? null, true, 'duplicate acknowledgement should report current state');
+    assert_equals($response['body']['event']['openedAt'] ?? null, $bobOpenedAt, 'duplicate acknowledgement must preserve opened time');
+
+    $response = make_request($baseUrl, 'GET', '/api/student_chests.php');
+    assert_equals($response['body']['pendingCount'] ?? null, 0, 'opened chest should leave the pending queue');
+    $response = make_request($baseUrl, 'GET', '/api/student_chests.php?status=history');
+    assert_equals(count($response['body']['events'] ?? []), 1, 'opened chest should remain in student history');
+    assert_equals($response['body']['events'][0]['id'] ?? null, $bobChestId, 'history should retain the opened chest id');
+
     $response = make_request($baseUrl, 'GET', '/api/student_overview.php');
     assert_equals($response['body']['credits']['earned'] ?? null, 2, 'Course A overview should total current confirmed rewards');
     assert_equals($response['body']['credits']['maximum'] ?? null, 8, 'Course A overview should expose its own target');
@@ -782,6 +861,16 @@ try {
     assert_equals($response['body']['credits']['percentage'] ?? null, 25, 'Course A overview should calculate target percentage');
 
     login_student($baseUrl, 'charlie@students.zhaw.ch', 'charlie3');
+    $response = make_request($baseUrl, 'POST', '/api/open_student_chest.php', ['chestId' => $bobChestId]);
+    assert_equals($response['status'], 404, 'student must not acknowledge another student chest');
+    assert_equals($response['body']['error_code'] ?? null, 'CHEST_NOT_FOUND', 'foreign and missing chests should share one response');
+
+    $response = make_request($baseUrl, 'GET', '/api/student_chests.php');
+    assert_equals($response['body']['pendingCount'] ?? null, 1, 'second bulk-approved student should have an independent chest');
+    $charlieChest = $response['body']['events'][0] ?? [];
+    $charlieChestId = (int) ($charlieChest['id'] ?? 0);
+    assert_true($charlieChestId > 0 && $charlieChestId !== $bobChestId, 'each approved participation should have its own chest');
+
     $response = make_request($baseUrl, 'GET', '/api/student_overview.php');
     assert_equals($response['body']['credits']['earned'] ?? null, 2, 'Course B overview should total the same experiment reward');
     assert_equals($response['body']['credits']['maximum'] ?? null, 10, 'Course B overview should expose its different target');
@@ -796,9 +885,41 @@ try {
     assert_equals($response['status'], 200, 'bulk grading should remove selected confirmations');
     assert_equals($response['body']['affectedCount'] ?? null, 1, 'bulk unconfirmation should affect one participation');
 
+    $response = make_request($baseUrl, 'GET', '/api/student_chests.php');
+    assert_equals($response['body']['pendingCount'] ?? null, 0, 'unconfirmation should revoke an unopened chest');
+    $response = make_request($baseUrl, 'GET', '/api/student_chests.php?status=history');
+    assert_equals($response['body']['events'][0]['id'] ?? null, $charlieChestId, 'revoked chest should remain in history');
+    assert_true(is_string($response['body']['events'][0]['revokedAt'] ?? null), 'revoked chest history should expose revocation time');
+
+    $response = make_request($baseUrl, 'POST', '/api/open_student_chest.php', ['chestId' => $charlieChestId]);
+    assert_equals($response['status'], 409, 'revoked unopened chest should not be openable');
+    assert_equals($response['body']['error_code'] ?? null, 'CHEST_REVOKED', 'revoked chest response should be explicit');
+
     $response = make_request($baseUrl, 'GET', '/api/student_overview.php');
     assert_equals($response['body']['credits']['earned'] ?? null, 0, 'bulk unconfirmation should remove the current reward from the course total');
     assert_equals($response['body']['credits']['percentage'] ?? null, 0, 'a positive target with no earned points should report zero percent');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'bulk_grading_operation',
+        'experimentId' => 2,
+        'operation' => 'confirm',
+        'participationIds' => [$charlieParticipationId],
+    ]);
+    assert_equals($response['status'], 200, 'reconfirmation should succeed');
+    assert_equals($response['body']['affectedCount'] ?? null, 1, 'reconfirmation should change the participation once');
+    $response = make_request($baseUrl, 'GET', '/api/student_chests.php');
+    assert_equals($response['body']['pendingCount'] ?? null, 1, 'reconfirmation should reactivate the unopened chest');
+    assert_equals($response['body']['events'][0]['id'] ?? null, $charlieChestId, 'reconfirmation should retain the original chest id');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'bulk_grading_operation',
+        'experimentId' => 2,
+        'operation' => 'confirm',
+        'participationIds' => [$charlieParticipationId],
+    ]);
+    assert_equals($response['body']['affectedCount'] ?? null, 0, 'second reconfirmation should be a no-op');
+    $response = make_request($baseUrl, 'GET', '/api/student_chests.php');
+    assert_equals($response['body']['pendingCount'] ?? null, 1, 'second reconfirmation must not add a chest');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'bulk_grading_operation',
@@ -818,6 +939,31 @@ try {
     assert_equals($response['status'], 200, 'bulk grading should reset selected participations');
     assert_equals($response['body']['affectedCount'] ?? null, 1, 'bulk reset should affect one participation');
     assert_equals($response['body']['releasedAccessCount'] ?? null, 1, 'bulk reset should release one access row');
+
+    $response = make_request($baseUrl, 'GET', '/api/student_chests.php');
+    assert_equals($response['body']['pendingCount'] ?? null, 0, 'bulk reset should revoke the reactivated unopened chest');
+    $verificationPdo = new PDO('sqlite:' . $dbPath, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    $sourceStatement = $verificationPdo->prepare('SELECT source_participation_id FROM student_chest_events WHERE id = ?');
+    $sourceStatement->execute([$charlieChestId]);
+    assert_equals($sourceStatement->fetchColumn(), null, 'participation deletion should preserve chest history with a null source link');
+    unset($sourceStatement, $verificationPdo);
+
+    $response = make_request($baseUrl, 'POST', '/api/claim.php', ['experimentId' => 2]);
+    assert_equals($response['status'], 200, 'student should be able to create a fresh participation after reset');
+    $response = make_request($baseUrl, 'GET', '/api/manage/dashboard.php');
+    $freshCharlieParticipation = dashboard_participation($response['body'] ?? [], 'charlie@students.zhaw.ch', 2);
+    $freshCharlieParticipationId = (int) ($freshCharlieParticipation['id'] ?? 0);
+    assert_true($freshCharlieParticipationId > 0 && $freshCharlieParticipationId !== $charlieParticipationId, 'fresh participation should have a new trigger identity');
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'bulk_grading_operation',
+        'experimentId' => 2,
+        'operation' => 'confirm',
+        'participationIds' => [$freshCharlieParticipationId],
+    ]);
+    assert_equals($response['body']['affectedCount'] ?? null, 1, 'fresh participation should be independently confirmable');
+    $response = make_request($baseUrl, 'GET', '/api/student_chests.php');
+    assert_equals($response['body']['pendingCount'] ?? null, 1, 'fresh participation should earn one new chest');
+    assert_true(($response['body']['events'][0]['id'] ?? null) !== $charlieChestId, 'fresh participation should not reuse the reset chest history');
 
     $response = make_request($baseUrl, 'GET', '/api/manage/dashboard.php');
     assert_equals($response['status'], 200, 'management dashboard should return 200');
@@ -1507,6 +1653,39 @@ try {
     assert_equals($response['status'], 409, 'condition assignment clearing should be blocked after participation exists');
     assert_equals($response['body']['error_code'] ?? null, 'CONDITION_ASSIGNMENT_HAS_PARTICIPATIONS', 'condition clearing guard should be explicit');
 
+    $response = make_request($baseUrl, 'GET', '/api/student_chests.php');
+    assert_equals($response['body']['pendingCount'] ?? null, 0, 'student should have no chest before the first approval');
+
+    $verificationPdo = new PDO('sqlite:' . $dbPath, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    $chestCountBeforeForcedFailure = (int) $verificationPdo->query('SELECT COUNT(*) FROM student_chest_events')->fetchColumn();
+    $verificationPdo->exec(
+        "CREATE TRIGGER force_chest_insert_failure
+         BEFORE INSERT ON student_chest_events
+         BEGIN
+             SELECT RAISE(ABORT, 'forced chest insert failure');
+         END"
+    );
+    unset($verificationPdo);
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'toggle_confirmation',
+        'participationId' => $managedParticipationId,
+    ]);
+    assert_equals($response['status'], 500, 'confirmation should fail when its chest cannot be persisted');
+    assert_equals($response['body']['error_code'] ?? null, 'MANAGEMENT_ACTION_FAILED', 'atomic chest failure should use management error shape');
+
+    $verificationPdo = new PDO('sqlite:' . $dbPath, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    $confirmationStatement = $verificationPdo->prepare('SELECT confirmed_at FROM participations WHERE id = ?');
+    $confirmationStatement->execute([$managedParticipationId]);
+    assert_equals($confirmationStatement->fetchColumn(), null, 'failed chest insert should roll confirmation back');
+    assert_equals(
+        (int) $verificationPdo->query('SELECT COUNT(*) FROM student_chest_events')->fetchColumn(),
+        $chestCountBeforeForcedFailure,
+        'failed chest insert should add no event'
+    );
+    $verificationPdo->exec('DROP TRIGGER force_chest_insert_failure');
+    unset($confirmationStatement, $verificationPdo);
+
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'toggle_confirmation',
         'participationId' => $managedParticipationId,
@@ -1514,6 +1693,40 @@ try {
     assert_equals($response['status'], 200, 'management should toggle confirmation');
     assert_equals($response['body']['confirmed'] ?? null, true, 'confirmation should be enabled');
     assert_equals($response['body']['creditedReward'] ?? null, 5, 'confirmation should count the full experiment reward');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'bulk_grading_operation',
+        'experimentId' => $managedExperimentId,
+        'operation' => 'confirm',
+        'participationIds' => [$managedParticipationId],
+    ]);
+    assert_equals($response['body']['affectedCount'] ?? null, 0, 'repeat confirmation should not change the managed participation');
+
+    $response = make_request($baseUrl, 'GET', '/api/student_chests.php');
+    assert_equals($response['body']['pendingCount'] ?? null, 1, 'successful confirmation should create one durable chest');
+    $managedChestId = (int) ($response['body']['events'][0]['id'] ?? 0);
+    assert_true($managedChestId > 0, 'managed confirmation chest should have an id');
+
+    $verificationPdo = new PDO('sqlite:' . $dbPath, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    $duplicateRejected = false;
+    try {
+        $verificationPdo->prepare(
+            'INSERT INTO student_chest_events
+                (student_email, source_participation_id, event_type, trigger_scope, variant, experiment_name_snapshot)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        )->execute([
+            'dana@students.zhaw.ch',
+            $managedParticipationId,
+            'participation_credited',
+            'participation:' . $managedParticipationId,
+            'gold',
+            'Duplicate',
+        ]);
+    } catch (PDOException $exception) {
+        $duplicateRejected = (string) $exception->getCode() === '23000';
+    }
+    assert_true($duplicateRejected, 'database trigger uniqueness should reject duplicate chest rows');
+    unset($verificationPdo);
 
     $verificationPdo = new PDO('sqlite:' . $dbPath, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
     $snapshotStatement = $verificationPdo->prepare('SELECT reward_credits_snapshot FROM participations WHERE id = ?');
@@ -1601,6 +1814,21 @@ try {
     assert_equals($response['status'], 200, 'additional participation should still be confirmable');
     assert_equals($response['body']['creditedReward'] ?? null, 4, 'a confirmation after reaching the course target should count in full');
 
+    $response = make_request($baseUrl, 'GET', '/api/student_chests.php');
+    assert_equals($response['body']['pendingCount'] ?? null, 2, 'multiple approvals should accumulate as independent pending chests');
+    assert_equals(count($response['body']['events'] ?? []), 2, 'pending response should include both accumulated chests');
+    assert_equals($response['body']['events'][0]['id'] ?? null, $managedChestId, 'pending chests should use earned-at and id FIFO ordering');
+    assert_equals($response['body']['events'][0]['experimentName'] ?? null, 'Managed Experiment', 'first pending chest should identify its experiment');
+    assert_equals($response['body']['events'][1]['experimentName'] ?? null, 'Additional Participation Beyond Target', 'second pending chest should identify its experiment');
+    $additionalChestId = (int) ($response['body']['events'][1]['id'] ?? 0);
+    assert_true($additionalChestId > $managedChestId, 'second approval should create a later event id');
+
+    $response = make_request($baseUrl, 'POST', '/api/open_student_chest.php', ['chestId' => $managedChestId]);
+    assert_equals($response['status'], 200, 'student should open the first accumulated chest');
+    $response = make_request($baseUrl, 'GET', '/api/student_chests.php');
+    assert_equals($response['body']['pendingCount'] ?? null, 1, 'opening one accumulated chest should leave the other pending');
+    assert_equals($response['body']['events'][0]['id'] ?? null, $additionalChestId, 'remaining pending chest should keep its identity');
+
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'save_student_group',
         'id' => 1,
@@ -1677,6 +1905,8 @@ try {
     $response = make_request($baseUrl, 'GET', '/api/manage/report.php');
     $danaReportRow = report_row_by_code($response['body'] ?? [], 'dana');
     assert_equals($danaReportRow['totalCredits'] ?? null, 10, 'report should immediately reflect the edited reward');
+    $response = make_request($baseUrl, 'GET', '/api/student_chests.php?status=history');
+    assert_equals($response['body']['events'][0]['experimentName'] ?? null, 'Managed Experiment', 'reward edits should not mutate chest presentation history');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'toggle_confirmation',
@@ -1693,6 +1923,9 @@ try {
     ]);
     assert_equals($response['status'], 200, 'single grading action should restore confirmation');
     assert_equals($response['body']['creditedReward'] ?? null, 6, 'reconfirmation should return the full current reward');
+    $response = make_request($baseUrl, 'GET', '/api/student_chests.php');
+    assert_equals($response['body']['pendingCount'] ?? null, 1, 'reconfirming an opened participation should not create another chest');
+    assert_equals($response['body']['events'][0]['id'] ?? null, $additionalChestId, 'only the independently pending chest should remain');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'set_student_login_code',
@@ -1724,6 +1957,37 @@ try {
     ]);
     assert_equals($response['status'], 200, 'management should reset participation');
     assert_equals($response['body']['releasedAccess'] ?? null, true, 'reset should release access row');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/reset_student.php', [
+        'email' => 'dana@students.zhaw.ch',
+        'experimentId' => $additionalExperimentId,
+        'releaseAssignment' => true,
+    ]);
+    assert_equals($response['status'], 200, 'student reset endpoint should remove the additional participation');
+    assert_equals($response['body']['resetCount'] ?? null, 1, 'student reset should affect the selected participation');
+
+    login_student($baseUrl, 'dana@students.zhaw.ch', 'Dana55');
+    $response = make_request($baseUrl, 'GET', '/api/student_chests.php');
+    assert_equals($response['body']['pendingCount'] ?? null, 0, 'student reset should revoke its unopened chest');
+    $response = make_request($baseUrl, 'GET', '/api/student_chests.php?status=history');
+    assert_equals(count($response['body']['events'] ?? []), 2, 'opened and revoked chests should remain as student history after resets');
+    $historyById = [];
+    foreach ($response['body']['events'] ?? [] as $historyEvent) {
+        $historyById[(int) ($historyEvent['id'] ?? 0)] = $historyEvent;
+    }
+    assert_true(is_string($historyById[$managedChestId]['openedAt'] ?? null), 'opened chest should remain opened after participation reset');
+    assert_equals($historyById[$managedChestId]['revokedAt'] ?? null, null, 'opened history should not be revoked by reset');
+    assert_true(is_string($historyById[$additionalChestId]['revokedAt'] ?? null), 'unopened chest should remain as revoked history after student reset');
+
+    $verificationPdo = new PDO('sqlite:' . $dbPath, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    $sourceCount = $verificationPdo->query(
+        "SELECT COUNT(*)
+         FROM student_chest_events
+         WHERE student_email = 'dana@students.zhaw.ch'
+           AND source_participation_id IS NULL"
+    );
+    assert_equals((int) $sourceCount->fetchColumn(), 2, 'reset participation links should become null without deleting history');
+    unset($sourceCount, $verificationPdo);
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'delete_access_field',

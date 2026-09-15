@@ -137,14 +137,15 @@ After deploying files, verify one test student below target and one above target
 
 ### Student Chest Persistence V4 Migration
 
-Database migration required: **yes** when upgrading an existing V3 installation. This persistence milestone adds an unused event table; it does not yet create or display chests and it never backfills existing confirmations.
+Database migration required: **yes** when upgrading an existing V3 installation. The current server creates chest events for future confirmations but does not backfill existing confirmations. The student-facing animated queue is delivered separately.
 
 1. Take and verify a full live database backup.
 2. In phpMyAdmin, run the commented precondition queries at the top of `database/migrations/2026-09-15-student-chests/migration.sql`.
 3. Require schema version `3` and no existing `student_chest_events` table.
 4. Import that exact migration file.
 5. Run its post-migration queries and require schema version `4`, the documented table definition, and `chest_event_count = 0`.
-6. Deploy the matching V4 application files and run the deployment preflight without `--expect-empty` on an active installation.
+6. Deploy the matching V4 application files and run the deployment preflight without `--expect-empty` on an active installation. Do not deploy the confirmation/API files before the migration succeeds.
+7. Confirm one designated test participation and verify through the authenticated student API that exactly one pending event exists; repeat the confirmation request and verify the count remains one.
 
 The migration uses MySQL DDL, which auto-commits. It intentionally fails on a rerun rather than silently accepting an incompatible table. If it fails partway through, inspect the error and restore the verified backup before retrying. Once future milestones create chest history, rolling application files back should leave the V4 table intact; do not drop student history simply to report an older schema version.
 

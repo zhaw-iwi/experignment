@@ -2,7 +2,7 @@
 
 Date: 2026-09-15
 
-Status: In progress - Milestone 1 complete; Milestone 2 next
+Status: In progress - Milestones 1-2 complete; Milestone 3 next
 
 ## 1. Objective
 

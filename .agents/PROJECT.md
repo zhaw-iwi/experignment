@@ -34,7 +34,7 @@ Experiment Assignment App is a PHP/MySQL application for managing student experi
 - [x] 2026-09-15: Accessible student points visualization
 - [x] 2026-09-15: Isolated browser and deployment acceptance
 - [x] 2026-09-15: V4 chest persistence and live migration
-- [ ] Student chest exactly-once lifecycle and API
+- [x] 2026-09-15: Student chest exactly-once lifecycle and API
 - [ ] Student chest queue, visual, and accessibility
 - [ ] Student chest browser acceptance and production handoff
 - [ ] Clean production deployment and semester activation
@@ -1504,3 +1504,67 @@ Observed on 2026-09-15:
 ### Next Steps
 
 - Implement Milestone 2 from `.agents/PLAN_CHESTS.md`: exactly-once creation/reactivation/revocation, student-scoped pending/history reads, and idempotent acknowledgement.
+
+## 2026-09-15: Student Chest Exactly-Once Lifecycle And API
+
+### Goal
+
+Create, retain, revoke, query, and acknowledge one durable chest for each future credited participation without coupling points to browser delivery.
+
+### What Changed
+
+- Added `api/_chests.php` with a stable `participation:{id}` trigger, database-backed create/reactivate logic, unopened revocation, reset detachment, student-scoped pending/history queries, and idempotent acknowledgement.
+- Integrated chest creation into the shared confirmation helper after the participation row lock, so single and bulk confirmations use the same atomic transaction.
+- Made unconfirmation revoke only unopened events and reconfirmation reactivate that same row; opened history never earns a replacement chest.
+- Made experiment deletion, bulk reset, single reset, and student reset lock affected participations, revoke unopened events, and detach retained history before deletion.
+- Added `GET api/student_chests.php` with pending/history filters and stable FIFO pending order.
+- Added CSRF-protected `POST api/open_student_chest.php`; identity comes only from the student session, duplicate opening returns the current state, and missing/foreign IDs share one response.
+- Kept variant, event type, ownership, experiment snapshot, and reward semantics server-owned; the chest payload contains no point snapshot or trusted HTML.
+- Expanded the SQLite HTTP smoke test across atomic rollback, unique triggers, future-event discovery, bulk creation, ownership, CSRF, history, acknowledgement, unconfirmation, reconfirmation, reset, and fresh post-reset participation behavior.
+- Updated README, canonical context, plan status, and production migration notes.
+
+### How To Run
+
+Apply the V3-to-V4 migration before deploying these server files. Existing V4 databases require no additional change for this milestone.
+
+Authenticated student endpoints:
+
+- `GET api/student_chests.php` for pending events.
+- `GET api/student_chests.php?status=history` for opened/revoked history.
+- `POST api/open_student_chest.php` with JSON `{ "chestId": 123 }` and the session CSRF header.
+
+### How To Test
+
+- `Get-ChildItem -Recurse -Filter *.php | ForEach-Object { php -l $_.FullName }`
+- `node --check assets/app.js`
+- `node --check manage/manage.js`
+- `php tests/config_test.php`
+- `php tests/schema_test.php`
+- `php tests/validation_test.php`
+- `php tests/text_quality_test.php`
+- `php tests/js_regression_test.php`
+- `php tests/api_smoke_test.php`
+- `node tests/points_ui_test.js`
+- `npm run test:browser`
+
+Observed on 2026-09-15:
+
+- Every PHP file passed syntax validation, including all new chest helpers and endpoints.
+- Both application JavaScript files passed syntax validation.
+- All six PHP test scripts and the pure points test passed.
+- The expanded SQLite HTTP test passed its forced-rollback, lifecycle, authorization, and reset scenarios.
+- All seven existing Chromium scenarios passed without regressions.
+- `git diff --check` passed.
+
+### Known Issues And Decisions
+
+- The chest is an acknowledgement of an already-effective confirmation; opening it never changes points.
+- One participation has one lifetime chest. Unconfirm/reconfirm cannot be used to farm new rows.
+- Reactivating an unopened chest refreshes its earned time and public experiment-name snapshot so FIFO order reflects the new confirmation.
+- History responses are bounded to 100 rows; pending count remains authoritative and future UI queue completion refetches current pending state.
+- The student visual queue is intentionally deferred to Milestone 3; pending events already accumulate durably in the meantime.
+- Disposable MySQL migration verification remains unavailable without a reset-approved `.env.test`; all behavioral tests use the isolated SQLite harness.
+
+### Next Steps
+
+- Implement Milestone 3 from `.agents/PLAN_CHESTS.md`: local chest assets, shared queue/controller, complete deterministic choreography, reduced motion, failure handling, and accessibility.

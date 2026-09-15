@@ -185,7 +185,10 @@ The student UI should:
 - Load overview data dynamically from `api/student_overview.php`.
 - Show visible experiments with columns for experiment, condition, assignment, assignment date, and `Angerechnet`.
 - Show disabled buttons for closed experiments.
-- Show course point progress against the student's course-specific target, current experiment rewards, effective availability, and full-capacity state.
+- Show a points card above the table with course name, earned points, course-specific target, true percentage, and an accessible progress bar whose visual width stops at 100%.
+- Omit percentage and determinate progress for missing or zero targets while still showing earned points and the target state.
+- Show the current reward for every experiment before and after confirmation without partial-credit wording.
+- Show effective availability and full-capacity state.
 - Let students choose a condition only when the experiment uses `student_choice`.
 - Claim/retrieve access through `api/claim.php`.
 - Show access fields generically based on API payloads.
@@ -220,6 +223,7 @@ The student UI should:
 - `api/manage/actions.php`: staff write actions.
 - `api/manage/generate_student_codes.php`: hash-only batch code generation with one-time plaintext CSV delivery.
 - `assets/app.js`: student UI logic.
+- `assets/points.js`: pure student point formatting, target-state, progress-clamping, and experiment-reward display helpers.
 - `manage/manage.js`: staff UI logic.
 - `.agents/PROJECT.md`: milestone audit trail.
 
@@ -243,8 +247,10 @@ Run:
 - `php tests/text_quality_test.php`
 - `php tests/js_regression_test.php`
 - `php tests/api_smoke_test.php`
+- `node tests/points_ui_test.js`
 
-`js_regression_test.php` currently catches management-client regressions that JavaScript syntax checking would miss, including pool-rendering references to grading-only variables.
+`points_ui_test.js` covers fractional formatting, exact and above-target percentages, progress-width clamping, missing/zero targets, and reward display before and after confirmation.
+`js_regression_test.php` catches management- and student-client regressions that JavaScript syntax checking would miss, including pool-rendering references to grading-only variables and required progress accessibility/containment markup.
 The API smoke test uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable. When SQLite support is available, it covers authentication, grouped rosters and access-code provisioning, course audiences, availability schedules, participant limits, readiness, private notes, undated slots, student claim/retrieval, slot capacity, management setup, eligibility guards, condition assignment, bundled pool import, staff-entered access values, dynamic uncapped reward confirmation, course-specific targets and percentages, audit events, participation reset, randomization, and the cross-experiment approval report.
 
 On the current development machine as last observed:
@@ -254,6 +260,7 @@ On the current development machine as last observed:
 - `text_quality_test.php` passed.
 - `js_regression_test.php` passed.
 - `api_smoke_test.php` passed after enabling `pdo_sqlite` in the active PHP `php.ini`.
+- `node tests/points_ui_test.js` passed.
 - `node --check manage/manage.js` passed.
 - Clean `schema.sql` plus `seed.sql` imports passed on MariaDB 10.6.28, MariaDB 11.4.13, and MySQL 8.4.10.
 - Example-seed import followed by `reset_all_data.sql`, and full `drop_tables.sql` followed by rebuild, both passed.

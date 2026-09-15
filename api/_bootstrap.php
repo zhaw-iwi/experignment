@@ -560,9 +560,9 @@ function experiment_readiness(PDO $pdo, array $experiment): array
 
     $groupsWithoutMaximum = array_filter($groups, static fn (array $group): bool => $group['max_credits'] === null);
     if ($groupsWithoutMaximum !== []) {
-        $addIndicator('course_maximum', 'Kursmaxima', 'error', count($groupsWithoutMaximum) . ' Zielkurse haben noch kein Punktemaximum.');
+        $addIndicator('course_maximum', 'Punkteziele', 'error', count($groupsWithoutMaximum) . ' Zielkurse haben noch kein Punkteziel.');
     } else {
-        $addIndicator('course_maximum', 'Kursmaxima', 'complete', 'Alle Zielkurse haben ein Punktemaximum.');
+        $addIndicator('course_maximum', 'Punkteziele', 'complete', 'Alle Zielkurse haben ein Punkteziel.');
     }
 
     $studentsWithoutCode = array_filter(

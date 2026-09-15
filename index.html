@@ -58,11 +58,17 @@
                 <div>
                     <p class="eyebrow mb-1">Übersicht</p>
                     <h1 class="h3 mb-0">Ihre Experimente</h1>
-                    <div id="studentCreditSummary" class="text-secondary mt-1"></div>
                 </div>
             </div>
 
             <div id="overviewMessage" class="mb-3 d-none"></div>
+
+            <section
+                id="studentCreditSummary"
+                class="panel points-summary mb-3"
+                aria-labelledby="studentCreditHeading"
+                aria-live="polite"
+            ></section>
 
             <div class="panel overflow-hidden p-0">
                 <div class="table-responsive">
@@ -93,6 +99,7 @@
     integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
     crossorigin="anonymous"
 ></script>
+<script src="assets/points.js" defer></script>
 <script src="assets/app.js" defer></script>
 </body>
 </html>

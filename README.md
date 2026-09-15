@@ -88,7 +88,7 @@ The V3 runtime uses course groups, student login-code metadata, authentication t
 6. Slot-based experiments require one slot choice with capacity checks.
 7. Staff-entered appointment text appears in the access information when available.
 8. `Angerechnet` and the experiment's current reward are shown after staff confirms the participation. Every confirmed experiment contributes its full current reward, including above the course target; editing a reward recalculates existing confirmed totals.
-9. The overview shows the student's course, earned points, and course target. The navbar shows the authenticated email, and the server-side session can be ended with `Beenden`.
+9. A points card above the experiment table shows the student's course, earned points, course target, percentage, and an accessible progress bar. Percentages can exceed 100%, while the bar stops visually at 100%. Missing and zero targets omit the percentage and determinate bar. The navbar shows the authenticated email, and the server-side session can be ended with `Beenden`.
 
 Student codes are never stored in browser storage. The server stores password hashes only, throttles repeated login failures, and invalidates an active student session when that student's code version changes.
 
@@ -168,9 +168,11 @@ php tests/validation_test.php
 php tests/text_quality_test.php
 php tests/js_regression_test.php
 php tests/api_smoke_test.php
+node tests/points_ui_test.js
 ```
 
-`js_regression_test.php` catches focused management-client regressions that are not covered by JavaScript syntax checking alone.
+`points_ui_test.js` covers decimal point formatting, target states, visible percentages, visual-width clamping, and reward display before and after confirmation.
+`js_regression_test.php` catches focused management- and student-client regressions that are not covered by JavaScript syntax checking alone, including progress-bar accessibility and visual containment guards.
 `api_smoke_test.php` uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable.
 When SQLite support is available, it covers student and administrator authentication, session-bound identity, CSRF enforcement, grouped roster upserts, course guards, one-time generated-code CSV delivery, hash-only persistence, manual code rotation, login-code session revocation, course-targeted experiment visibility, opening schedules, participant maxima, ready-to-open validation, private notes, explicit undated slots, the student claim/retrieval flow, slot capacity enforcement, management setup actions, allowlist removal guards, participant selection and clearing, condition assignment and clearing, access-pool import, staff-entered access values, dynamic uncapped rewards, course-specific targets and percentages, confirmation, bulk grading operations, appointment retrieval, reset, randomization, audit events, and the management approval report endpoint.
 The report coverage includes the distinction between opened access and confirmed `Angerechnet` approval as well as dynamically calculated totals and course targets.

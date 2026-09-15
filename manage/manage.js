@@ -984,8 +984,8 @@ function renderStudentGroupList() {
         name.textContent = group.name;
         const meta = document.createElement("div");
         meta.className = "small text-secondary mt-1";
-        const maximum = group.maxCredits === null ? "Punktemaximum offen" : `maximal ${formatCreditValue(group.maxCredits)} Punkte`;
-        meta.textContent = `${group.studentCount} Studierende · ${maximum}`;
+        const target = group.maxCredits === null ? "Punkteziel offen" : `Punkteziel ${formatCreditValue(group.maxCredits)} Punkte`;
+        meta.textContent = `${group.studentCount} Studierende · ${target}`;
         text.append(name, meta);
 
         const actions = document.createElement("div");

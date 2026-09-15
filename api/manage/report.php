@@ -33,7 +33,7 @@ $columns = [
     ],
     [
         'key' => 'courseMaximum',
-        'label' => 'Maximum',
+        'label' => 'Punkteziel',
         'type' => 'credits',
     ],
 ];

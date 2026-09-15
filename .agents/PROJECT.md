@@ -31,6 +31,7 @@ Experiment Assignment App is a PHP/MySQL application for managing student experi
 - [x] 2026-09-09: Protected browser deployment preflight
 - [x] 2026-09-15: Student points visualization plan and green baseline
 - [x] 2026-09-15: Dynamic uncapped reward semantics
+- [x] 2026-09-15: Accessible student points visualization
 - [ ] Clean production deployment and semester activation
 
 ## 2026-05-11: V2 Greenfield Multi-Experiment Implementation
@@ -1315,3 +1316,57 @@ Observed on 2026-09-15:
 ### Next Steps
 
 - Implement Milestone 2 from `.agents/PLAN_POINTSVISUAL.md`: the accessible student points summary, percentage, progress bar, fractional formatting, and target terminology.
+
+## 2026-09-15: Accessible Student Points Visualization
+
+### Goal
+
+Give students an immediately understandable, responsive, and accessible view of their earned points relative to their course-specific target.
+
+### What Changed
+
+- Replaced the compact overview text with a dedicated points card above the experiment table.
+- Displayed the course name, earned points, point target, and actual percentage as separate metrics.
+- Added a determinate ARIA progress bar with readable value text; percentages above 100 remain visible while the fill and ARIA numeric value stop at 100.
+- Added explicit missing- and zero-target states without a misleading percentage or determinate bar.
+- Kept the per-experiment `Punkte` column visible before and after confirmation and removed obsolete partial-credit detail text.
+- Extracted pure point formatting and view-state helpers into `assets/points.js` so decimal, percentage, target-state, and bar-clamping behavior can be tested without a browser.
+- Added `tests/points_ui_test.js` and expanded the JavaScript regression test with script-order, accessibility, current-reward, and overflow-containment checks.
+- Made course-target terminology consistent in the management course editor, overview metadata, readiness indicator, and report column while preserving existing API/database field names.
+- Added responsive metric layout for narrow viewports.
+
+### How To Run
+
+No database change is required. Serve the repository normally and sign in as a student to see the points card above the experiment table.
+
+### How To Test
+
+- `node --check assets/points.js`
+- `node --check assets/app.js`
+- `node --check manage/manage.js`
+- `node tests/points_ui_test.js`
+- `php tests/config_test.php`
+- `php tests/schema_test.php`
+- `php tests/validation_test.php`
+- `php tests/text_quality_test.php`
+- `php tests/js_regression_test.php`
+- `php tests/api_smoke_test.php`
+
+Observed on 2026-09-15:
+
+- The new pure JavaScript points test passed for fractional, exact-target, above-target, missing-target, zero-target, and reward-display cases.
+- Every PHP file passed syntax validation.
+- All student and management JavaScript files and the new Node test passed syntax validation.
+- All six PHP test scripts passed, including the expanded JavaScript regression checks and SQLite-backed authenticated API smoke test.
+- `git diff --check` passed.
+
+### Known Issues And Decisions
+
+- The browser uses the API's server-calculated percentage and does not derive an authoritative total from visible experiment rows.
+- Above-target accessibility text retains the actual percentage, while `aria-valuenow` mirrors the visually clamped bar value.
+- Browser-level desktop/mobile and accessibility assertions are intentionally added in Milestone 3's Playwright harness.
+- There is no schema change and no phpMyAdmin migration script.
+
+### Next Steps
+
+- Implement Milestone 3 from `.agents/PLAN_POINTSVISUAL.md`: repeatable Playwright coverage, disposable test data, browser QA, and live-safe deployment verification.

@@ -138,11 +138,7 @@ function renderOverview() {
     const experiments = state.overview && Array.isArray(state.overview.experiments)
         ? state.overview.experiments
         : [];
-    const credits = state.overview?.credits || {};
-    const maximum = credits.maximum === null || credits.maximum === undefined
-        ? "Maximum noch nicht festgelegt"
-        : `${formatCreditValue(credits.earned)} von ${formatCreditValue(credits.maximum)} Punkten erreicht`;
-    dom.studentCreditSummary.textContent = `${state.overview?.group?.name || ""} · ${maximum}`;
+    renderCreditSummary(state.overview?.group, state.overview?.credits);
 
     if (experiments.length === 0) {
         const row = document.createElement("tr");
@@ -161,12 +157,7 @@ function renderOverview() {
         row.appendChild(textCell(experiment.condition ? experiment.condition.name : "-", ""));
         row.appendChild(statusCell(experiment.assigned));
         row.appendChild(textCell(formatDateTime(experiment.assignedAt), ""));
-        row.appendChild(textCell(
-            formatCreditValue(experiment.confirmed ? experiment.creditedReward : experiment.rewardCredits),
-            experiment.confirmed && Number(experiment.creditedReward) < Number(experiment.rewardCredits)
-                ? `von ${formatCreditValue(experiment.rewardCredits)}`
-                : ""
-        ));
+        row.appendChild(textCell(StudentPoints.experimentRewardValue(experiment), ""));
         row.appendChild(statusCell(experiment.confirmed));
 
         const actionCell = document.createElement("td");
@@ -205,6 +196,60 @@ function renderOverview() {
         row.appendChild(actionCell);
         dom.experimentRows.appendChild(row);
     }
+}
+
+function renderCreditSummary(group, credits) {
+    const summary = StudentPoints.buildCreditSummary(group?.name, credits);
+    const percentageMetric = summary.percentageText === null
+        ? ""
+        : `
+            <div class="points-metric" data-testid="credit-percentage">
+                <strong class="points-metric-value">${escapeHtml(summary.percentageText)}</strong>
+                <span class="points-metric-label">vom Punkteziel</span>
+            </div>
+        `;
+    const progress = summary.progressWidth === null
+        ? `<p class="points-progress-caption mb-0" data-testid="credit-progress-unavailable">${escapeHtml(summary.progressCaption)}</p>`
+        : `
+            <div
+                id="studentCreditProgress"
+                class="points-progress-track"
+                role="progressbar"
+                aria-label="Punktefortschritt"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow="${summary.progressWidth}"
+                aria-valuetext="${escapeHtml(summary.progressValueText)}"
+                data-testid="credit-progress"
+            >
+                <div class="points-progress-fill" style="width: ${summary.progressWidth}%"></div>
+            </div>
+            <p class="points-progress-caption mb-0">${escapeHtml(summary.progressCaption)}</p>
+        `;
+
+    dom.studentCreditSummary.dataset.pointsState = summary.state;
+    dom.studentCreditSummary.innerHTML = `
+        <div class="points-summary-header">
+            <div>
+                <p class="eyebrow mb-1">Punktefortschritt</p>
+                <h2 id="studentCreditHeading" class="h5 mb-0">${escapeHtml(summary.courseName)}</h2>
+            </div>
+        </div>
+        <div class="points-metrics" aria-labelledby="studentCreditHeading">
+            <div class="points-metric" data-testid="credit-earned">
+                <strong class="points-metric-value">${escapeHtml(summary.earnedText)}</strong>
+                <span class="points-metric-label">Punkte erreicht</span>
+            </div>
+            <div class="points-metric" data-testid="credit-target">
+                <strong class="points-metric-value">${escapeHtml(summary.targetText)}</strong>
+                <span class="points-metric-label">${escapeHtml(summary.targetLabel)}</span>
+            </div>
+            ${percentageMetric}
+        </div>
+        <div class="points-progress-wrap">
+            ${progress}
+        </div>
+    `;
 }
 
 function experimentRowMeta(experiment) {
@@ -498,10 +543,6 @@ function slotLabel(slot) {
         parts.push([formatDateTime(slot.startsAt), formatDateTime(slot.endsAt)].filter((value) => value !== "-").join(" - "));
     }
     return parts.filter(Boolean).join(" · ");
-}
-
-function formatCreditValue(value) {
-    return new Intl.NumberFormat("de-CH", { maximumFractionDigits: 2 }).format(Number(value || 0));
 }
 
 async function copyText(value) {

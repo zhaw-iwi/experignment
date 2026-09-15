@@ -11,7 +11,7 @@ The app has two browser UIs:
 - `index.html`: student-facing page.
 - `manage/index.html`: staff-facing management page.
 
-The deployed behavior began as V2, a greenfield continuation of an older one-experiment app. The V3 semester-preparation application behavior is complete. The canonical V4 schema adds durable student participation chest events; the chest behavior is being delivered incrementally according to `.agents/PLAN_CHESTS.md`. Backward compatibility with the old V1 schema is intentionally not preserved.
+The deployed behavior began as V2, a greenfield continuation of an older one-experiment app. The V3 semester-preparation application behavior is complete. The canonical V4 application adds durable student participation chest events and an accessible student-side opening queue according to `.agents/PLAN_CHESTS.md`. Backward compatibility with the old V1 schema is intentionally not preserved.
 
 ## Current Product Decisions
 
@@ -49,6 +49,8 @@ The deployed behavior began as V2, a greenfield continuation of an older one-exp
 - Every future false-to-true confirmation atomically creates or reactivates one `participation_credited` row in `student_chest_events`. Its immutable trigger scope is the participation ID, and opening the chest only acknowledges an already-earned credit.
 - Historical confirmations are not backfilled. Pending chest reads and idempotent opening are scoped exclusively to the authenticated student; opened and revoked rows remain as history.
 - Unconfirming revokes an unopened chest, reconfirming reactivates that same unopened row, and an already-opened participation can never earn a second chest. Participation resets detach history and revoke only unopened events.
+- Pending chests are shown FIFO through one shared student controller. An explicit login may open the first chest automatically; session restoration exposes only the navbar count so it does not unexpectedly move focus.
+- Opening uses deterministic local gold chest art and a full pressure/burst/reveal/settle sequence. Reduced-motion users receive the same reveal and acknowledgement immediately, and acknowledgement failures remain retryable without replaying the effect.
 - Participation and full reward credit remain possible after the course point target has been reached.
 - Explicitly undated time slots have no start/end values and are the supported `Kein passender Termin` option.
 - The audit log records successful authentication, student participation, code provisioning, and management actions without storing plaintext access codes.
@@ -191,6 +193,8 @@ The student UI should:
 - Show a points card above the table with course name, earned points, course-specific target, true percentage, and an accessible progress bar whose visual width stops at 100%.
 - Omit percentage and determinate progress for missing or zero targets while still showing earned points and the target state.
 - Show the current reward for every experiment before and after confirmation without partial-credit wording.
+- Show an authenticated navbar count for unopened chests and present accumulated chests sequentially through one semantic modal.
+- Treat chest content as untrusted plain text, preload local art before enabling interaction, honor reduced motion in JavaScript and CSS, and cancel presentation timers on close or logout.
 - Show effective availability and full-capacity state.
 - Let students choose a condition only when the experiment uses `student_choice`.
 - Claim/retrieve access through `api/claim.php`.
@@ -231,10 +235,13 @@ The student UI should:
 - `api/manage/generate_student_codes.php`: hash-only batch code generation with one-time plaintext CSV delivery.
 - `assets/app.js`: student UI logic.
 - `assets/points.js`: pure student point formatting, target-state, progress-clamping, and experiment-reward display helpers.
+- `assets/chests.js`: shared student chest queue, deterministic choreography, acknowledgement, retry, reduced-motion, and stale-callback controller.
+- `assets/chests/`: local closed/open-gold RGBA art and generation/provenance notes.
 - `manage/manage.js`: staff UI logic.
 - `package.json`, `package-lock.json`: pinned Playwright, Chromium-test, and local Bootstrap test dependencies.
 - `tests/browser/run.mjs`: isolated browser-test orchestrator that owns temporary SQLite, environment, server, and artifact resources.
 - `tests/browser/student-points.spec.cjs`: desktop/mobile student progress DOM, accessibility, layout, and screenshot coverage.
+- `tests/chests_ui_test.js`: pure controller, timing, queue, cancellation, retry, reduced-motion, and local asset checks.
 - `.agents/PROJECT.md`: milestone audit trail.
 
 ## Deployment And Configuration
@@ -258,10 +265,12 @@ Run:
 - `php tests/js_regression_test.php`
 - `php tests/api_smoke_test.php`
 - `node tests/points_ui_test.js`
+- `npm run test:chests`
 - `npm run test:browser`
 
 `points_ui_test.js` covers fractional formatting, exact and above-target percentages, progress-width clamping, missing/zero targets, and reward display before and after confirmation.
-`js_regression_test.php` catches management- and student-client regressions that JavaScript syntax checking would miss, including pool-rendering references to grading-only variables and required progress accessibility/containment markup.
+`chests_ui_test.js` covers full/reduced timing branches, local asset mapping and decoding metadata, duplicate activation, queue reset, retry, and stale callback isolation.
+`js_regression_test.php` catches management- and student-client regressions that JavaScript syntax checking would miss, including pool-rendering references to grading-only variables, progress accessibility/containment markup, and chest semantics/choreography guards.
 The API smoke test uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable. When SQLite support is available, it covers authentication, grouped rosters and access-code provisioning, course audiences, availability schedules, participant limits, readiness, private notes, undated slots, student claim/retrieval, slot capacity, management setup, eligibility guards, condition assignment, bundled pool import, staff-entered access values, dynamic uncapped reward confirmation, course-specific targets and percentages, audit events, participation reset, randomization, and the cross-experiment approval report.
 The Playwright harness uses a temporary SQLite database and an explicitly selected temporary environment file. It replaces external CDN requests with the pinned local Bootstrap package and covers Course A below/above its 8-point target, Course B against its independent 10-point target, fractional rewards, missing/zero targets, ARIA progress values, bar containment, and mobile layout.
 

@@ -7,7 +7,14 @@ const state = {
     csrfToken: "",
     overview: null,
     activeExperimentId: null,
+    chestPendingCount: 0,
+    chestAssetsReady: false,
 };
+
+let chestController = null;
+let chestModal = null;
+let chestAssetPromise = null;
+let chestFetchGeneration = 0;
 
 const dom = {
     emailPanel: document.getElementById("emailPanel"),
@@ -22,11 +29,27 @@ const dom = {
     studentCreditSummary: document.getElementById("studentCreditSummary"),
     currentEmailBadge: document.getElementById("currentEmailBadge"),
     changeEmailButton: document.getElementById("changeEmailButton"),
+    studentChestInbox: document.getElementById("studentChestInbox"),
+    studentChestCount: document.getElementById("studentChestCount"),
+    studentChestModal: document.getElementById("studentChestModal"),
+    studentChestStage: document.getElementById("studentChestStage"),
+    studentChestOpenButton: document.getElementById("studentChestOpenButton"),
+    studentChestImage: document.getElementById("studentChestImage"),
+    studentChestPrompt: document.getElementById("studentChestPrompt"),
+    studentChestPosition: document.getElementById("studentChestPosition"),
+    studentChestReveal: document.getElementById("studentChestReveal"),
+    studentChestRevealTitle: document.getElementById("studentChestRevealTitle"),
+    studentChestBody: document.getElementById("studentChestBody"),
+    studentChestSaveStatus: document.getElementById("studentChestSaveStatus"),
+    studentChestRetry: document.getElementById("studentChestRetry"),
+    studentChestContinue: document.getElementById("studentChestContinue"),
+    studentChestAnnouncement: document.getElementById("studentChestAnnouncement"),
     experimentRows: document.getElementById("experimentRows"),
     detailPanel: document.getElementById("detailPanel"),
 };
 
 document.addEventListener("DOMContentLoaded", () => {
+    initializeChestExperience();
     const storedEmail = readStoredEmail();
     if (storedEmail) {
         dom.studentEmail.value = storedEmail;
@@ -69,7 +92,7 @@ async function restoreStudentSession() {
         state.email = session.email;
         state.csrfToken = session.csrfToken;
         writeStoredEmail(session.email);
-        await loadOverview();
+        await loadOverview(false);
     } catch (error) {
         resetStudentSession(false);
     }
@@ -87,7 +110,7 @@ async function loginStudent(email, accessCode) {
         state.csrfToken = session.csrfToken;
         dom.studentAccessCode.value = "";
         writeStoredEmail(session.email);
-        await loadOverview();
+        await loadOverview(true);
     } catch (error) {
         showMessage(dom.entryMessage, error.message || "Die Anmeldung ist fehlgeschlagen.", "danger");
     } finally {
@@ -100,6 +123,16 @@ function resetStudentSession(clearRememberedEmail) {
     state.csrfToken = "";
     state.overview = null;
     state.activeExperimentId = null;
+    state.chestPendingCount = 0;
+    state.chestAssetsReady = false;
+    chestFetchGeneration += 1;
+    if (chestController) {
+        chestController.setEvents([]);
+    }
+    if (chestModal) {
+        chestModal.hide();
+    }
+    renderChestInbox();
     if (clearRememberedEmail) {
         clearStoredEmail();
         dom.studentEmail.value = "";
@@ -111,7 +144,7 @@ function resetStudentSession(clearRememberedEmail) {
     dom.studentEmail.focus();
 }
 
-async function loadOverview() {
+async function loadOverview(autoOpenChests = false) {
     clearMessage(dom.entryMessage);
     clearMessage(dom.overviewMessage);
     try {
@@ -123,6 +156,11 @@ async function loadOverview() {
         renderSessionControls();
         dom.emailPanel.classList.add("d-none");
         dom.overviewPanel.classList.remove("d-none");
+        try {
+            await loadStudentChests(autoOpenChests);
+        } catch (error) {
+            showMessage(dom.overviewMessage, "Die Belohnungstruhen konnten nicht geladen werden.", "warning");
+        }
     } catch (error) {
         if (state.email) {
             showMessage(dom.overviewMessage, error.message || "Die Übersicht konnte nicht geladen werden.", "danger");
@@ -196,6 +234,120 @@ function renderOverview() {
         row.appendChild(actionCell);
         dom.experimentRows.appendChild(row);
     }
+}
+
+function initializeChestExperience() {
+    if (!window.StudentChests || !window.bootstrap?.Modal) {
+        return;
+    }
+
+    chestModal = window.bootstrap.Modal.getOrCreateInstance(dom.studentChestModal);
+    chestController = new window.StudentChests.ChestController({
+        stage: dom.studentChestStage,
+        openButton: dom.studentChestOpenButton,
+        image: dom.studentChestImage,
+        prompt: dom.studentChestPrompt,
+        position: dom.studentChestPosition,
+        reveal: dom.studentChestReveal,
+        title: dom.studentChestRevealTitle,
+        body: dom.studentChestBody,
+        status: dom.studentChestSaveStatus,
+        retryButton: dom.studentChestRetry,
+        continueButton: dom.studentChestContinue,
+        announcement: dom.studentChestAnnouncement,
+    }, {
+        acknowledge: (event) => apiRequest("api/open_student_chest.php", {
+            method: "POST",
+            body: JSON.stringify({ chestId: event.id }),
+        }),
+        onAcknowledged: () => {
+            state.chestPendingCount = Math.max(0, state.chestPendingCount - 1);
+            renderChestInbox();
+        },
+        onQueueChange: () => renderChestInbox(),
+        onQueueEmpty: () => chestModal.hide(),
+    });
+
+    dom.studentChestInbox.addEventListener("click", () => openChestQueue());
+    dom.studentChestModal.addEventListener("shown.bs.modal", () => {
+        if (chestController?.phase === "closed") {
+            dom.studentChestOpenButton.focus({ preventScroll: true });
+        }
+    });
+    dom.studentChestModal.addEventListener("hidden.bs.modal", () => {
+        chestController?.cancelPresentation();
+        if (state.email) {
+            void loadStudentChests(false)
+                .catch(() => {
+                    showMessage(dom.overviewMessage, "Die Belohnungstruhen konnten nicht aktualisiert werden.", "warning");
+                })
+                .finally(() => restoreFocusAfterChest());
+        }
+    });
+}
+
+function restoreFocusAfterChest() {
+    const target = state.chestPendingCount > 0 ? dom.studentChestInbox : dom.changeEmailButton;
+    target.focus({ preventScroll: true });
+}
+
+async function loadStudentChests(autoOpen) {
+    if (!chestController || !state.email) {
+        return;
+    }
+
+    const generation = ++chestFetchGeneration;
+    const payload = await apiRequest("api/student_chests.php", { method: "GET" });
+    if (generation !== chestFetchGeneration || !state.email) {
+        return;
+    }
+
+    const events = Array.isArray(payload.events) ? payload.events : [];
+    state.chestPendingCount = Number(payload.pendingCount) || 0;
+    state.chestAssetsReady = state.chestPendingCount === 0;
+    chestController.setEvents(events);
+    renderChestInbox();
+    if (state.chestPendingCount === 0) {
+        return;
+    }
+
+    await ensureChestAssets();
+    if (generation !== chestFetchGeneration || !state.email) {
+        return;
+    }
+    state.chestAssetsReady = true;
+    renderChestInbox();
+    if (autoOpen) {
+        openChestQueue();
+    }
+}
+
+function ensureChestAssets() {
+    if (!chestAssetPromise) {
+        chestAssetPromise = window.StudentChests.preloadChestAssets();
+    }
+    return chestAssetPromise;
+}
+
+function openChestQueue() {
+    if (!chestModal || !chestController || !state.chestAssetsReady) {
+        return;
+    }
+    if (chestController.presentFirst()) {
+        chestModal.show();
+    }
+}
+
+function renderChestInbox() {
+    const count = Math.max(0, Number(state.chestPendingCount) || 0);
+    const visible = state.email !== "" && count > 0;
+    dom.studentChestInbox.classList.toggle("d-none", !visible);
+    dom.studentChestInbox.disabled = !visible || !state.chestAssetsReady;
+    dom.studentChestCount.textContent = String(count);
+    dom.studentChestInbox.setAttribute(
+        "aria-label",
+        visible ? `${window.StudentChests?.pendingCountLabel(count) || `${count} neue Truhen`} öffnen` : "Keine neuen Truhen"
+    );
 }
 
 function renderCreditSummary(group, credits) {

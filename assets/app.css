@@ -9,6 +9,286 @@ body {
     min-height: 100vh;
 }
 
+.chest-inbox-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    white-space: nowrap;
+}
+
+.chest-modal-content {
+    overflow: hidden;
+    border: 0;
+    border-radius: 1rem;
+    box-shadow: 0 1.5rem 4rem rgba(23, 32, 51, 0.24);
+}
+
+.chest-dialog {
+    max-width: 38rem;
+}
+
+.chest-presentation {
+    padding: 0.75rem 0 1rem;
+}
+
+.chest-presentation [hidden] {
+    display: none !important;
+}
+
+.chest-stage {
+    --chest-primary: #ffe46b;
+    --chest-secondary: #77b7ff;
+    --chest-glow: rgb(255 228 107 / 52%);
+    --chest-particle-glow: rgb(255 228 107 / 88%);
+    position: relative;
+    display: grid;
+    width: 100%;
+    min-height: 17rem;
+    isolation: isolate;
+    place-items: center;
+}
+
+.chest-stage::before {
+    position: absolute;
+    z-index: 0;
+    width: 16rem;
+    height: 16rem;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--chest-glow), transparent 70%);
+    content: "";
+    filter: blur(2px);
+    pointer-events: none;
+    animation: chestAmbientPulse 1500ms ease-in-out infinite alternate;
+}
+
+.chest-stage::after {
+    position: absolute;
+    z-index: 0;
+    width: 8rem;
+    height: 8rem;
+    border: 0.35rem solid var(--chest-primary);
+    border-radius: 50%;
+    content: "";
+    opacity: 0;
+    pointer-events: none;
+}
+
+.chest-button {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    width: min(17rem, 72vw);
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: 1rem;
+    background: transparent;
+    cursor: pointer;
+    place-items: center;
+    animation: chestArrival 600ms cubic-bezier(.2, 1.2, .2, 1);
+}
+
+.chest-button:focus-visible {
+    outline: 0.25rem solid #0d6efd;
+    outline-offset: 0.35rem;
+}
+
+.chest-button:disabled {
+    opacity: 1;
+}
+
+.chest-button img {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1;
+    object-fit: contain;
+    pointer-events: none;
+    animation: chestFloat 1800ms ease-in-out 650ms infinite alternate;
+}
+
+.chest-stage.is-charging::before {
+    animation: chestPressureBuild 700ms cubic-bezier(.35, 0, .65, 1) both;
+}
+
+.chest-stage.is-bursting::after {
+    animation: chestShockwave 600ms ease-out both;
+}
+
+.chest-stage.is-bursting {
+    animation: chestStageRecoil 300ms ease-out both;
+}
+
+.chest-stage.is-open::before {
+    opacity: 0.9;
+    transform: scale(1);
+    animation: none;
+}
+
+.chest-button.is-charging {
+    animation: chestPressure 700ms linear both;
+}
+
+.chest-button.is-bursting {
+    animation: chestBurst 260ms cubic-bezier(.18, 1.35, .35, 1) both;
+}
+
+.chest-button.is-open {
+    cursor: default;
+    transform: none;
+    animation: none;
+}
+
+.chest-button.is-charging img,
+.chest-button.is-bursting img,
+.chest-button.is-open img {
+    animation: none;
+}
+
+.chest-prompt {
+    min-height: 1.5rem;
+    color: #5b6475;
+}
+
+.chest-reveal {
+    max-width: 32rem;
+    margin: 1rem auto 0;
+}
+
+.chest-reveal.is-revealed {
+    animation: chestReveal 520ms cubic-bezier(.18, 1.35, .35, 1) both;
+}
+
+.chest-save-status {
+    min-height: 1.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.chest-particles {
+    position: absolute;
+    z-index: 2;
+    inset: 0;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.chest-particles span {
+    position: absolute;
+    top: 49%;
+    left: 50%;
+    width: var(--particle-size, 0.55rem);
+    height: var(--particle-size, 0.55rem);
+    border-radius: 50%;
+    background: var(--particle-color, var(--chest-primary));
+    box-shadow: 0 0 18px var(--chest-particle-glow);
+    opacity: 0;
+}
+
+.chest-stage.is-bursting .chest-particles span {
+    animation: chestParticleBurst 900ms cubic-bezier(.12, .72, .2, 1) var(--particle-delay, 0ms) both;
+}
+
+.chest-particles .chest-star {
+    border-radius: 0 !important;
+    clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 94%, 50% 72%, 21% 94%, 32% 57%, 2% 35%, 39% 35%);
+}
+
+.chest-particles span:nth-child(even) { --particle-color: var(--chest-secondary); }
+.chest-particles span:nth-child(1)  { --particle-x: -8.8rem; --particle-y: -4.8rem; --particle-rotation: -130deg; --particle-delay: 0ms; }
+.chest-particles span:nth-child(2)  { --particle-x: -5.5rem; --particle-y: -7.8rem; --particle-rotation: 95deg; --particle-delay: 45ms; --particle-size: .85rem; }
+.chest-particles span:nth-child(3)  { --particle-x: -1.9rem; --particle-y: -9rem; --particle-rotation: -70deg; --particle-delay: 90ms; }
+.chest-particles span:nth-child(4)  { --particle-x: 3.2rem; --particle-y: -8.5rem; --particle-rotation: 140deg; --particle-delay: 20ms; --particle-size: .75rem; }
+.chest-particles span:nth-child(5)  { --particle-x: 7.4rem; --particle-y: -6.1rem; --particle-rotation: 210deg; --particle-delay: 75ms; }
+.chest-particles span:nth-child(6)  { --particle-x: 9.3rem; --particle-y: -2.1rem; --particle-rotation: -115deg; --particle-delay: 120ms; --particle-size: .9rem; }
+.chest-particles span:nth-child(7)  { --particle-x: 8.5rem; --particle-y: 3.3rem; --particle-rotation: 165deg; --particle-delay: 35ms; }
+.chest-particles span:nth-child(8)  { --particle-x: 5.1rem; --particle-y: 6.4rem; --particle-rotation: -190deg; --particle-delay: 145ms; --particle-size: .8rem; }
+.chest-particles span:nth-child(9)  { --particle-x: 1.6rem; --particle-y: 7.2rem; --particle-rotation: 105deg; --particle-delay: 80ms; }
+.chest-particles span:nth-child(10) { --particle-x: -3.6rem; --particle-y: 6.8rem; --particle-rotation: -155deg; --particle-delay: 125ms; --particle-size: .85rem; }
+.chest-particles span:nth-child(11) { --particle-x: -7.5rem; --particle-y: 4.6rem; --particle-rotation: 175deg; --particle-delay: 55ms; }
+.chest-particles span:nth-child(12) { --particle-x: -9.4rem; --particle-y: .2rem; --particle-rotation: -95deg; --particle-delay: 165ms; --particle-size: .75rem; }
+.chest-particles span:nth-child(13) { --particle-x: -5.9rem; --particle-y: -2.5rem; --particle-rotation: 135deg; --particle-delay: 180ms; }
+.chest-particles span:nth-child(14) { --particle-x: 6.1rem; --particle-y: .6rem; --particle-rotation: -145deg; --particle-delay: 195ms; --particle-size: .7rem; }
+
+@keyframes chestArrival {
+    from { opacity: 0; transform: translateY(4rem) scale(.72) rotate(-5deg); }
+    to { opacity: 1; transform: translateY(0) scale(1) rotate(0); }
+}
+
+@keyframes chestFloat {
+    from { transform: translateY(0) rotate(-.5deg); }
+    to { transform: translateY(-.45rem) rotate(.5deg); }
+}
+
+@keyframes chestAmbientPulse {
+    from { transform: scale(.92); opacity: .75; }
+    to { transform: scale(1.08); opacity: 1; }
+}
+
+@keyframes chestPressure {
+    0% { transform: translate(0, 0) scale(1); }
+    14% { transform: translate(-.08rem, 0) rotate(-.5deg) scale(1.002); }
+    28% { transform: translate(.1rem, -.02rem) rotate(.7deg) scale(1.008); }
+    42% { transform: translate(-.16rem, .03rem) rotate(-1deg) scale(1.015); }
+    54% { transform: translate(.2rem, -.04rem) rotate(1.4deg) scale(1.025); }
+    65% { transform: translate(-.28rem, .03rem) rotate(-1.8deg) scale(1.035); }
+    75% { transform: translate(.34rem, -.06rem) rotate(2.3deg) scale(1.045); }
+    84% { transform: translate(-.4rem, .05rem) rotate(-2.8deg) scale(1.055); }
+    92% { transform: translate(.35rem, .08rem) rotate(2.2deg) scale(1.02, 1.08); }
+    100% { transform: translateY(.18rem) rotate(0) scale(1.08, .9); }
+}
+
+@keyframes chestBurst {
+    0% { transform: translateY(.18rem) scale(1.08, .9); }
+    52% { transform: translateY(-.7rem) scale(1.15, 1.12) rotate(-1.5deg); }
+    78% { transform: translateY(.08rem) scale(.97, 1.03) rotate(.7deg); }
+    100% { transform: translateY(0) scale(1) rotate(0); }
+}
+
+@keyframes chestPressureBuild {
+    0% { transform: scale(.92); opacity: .72; filter: blur(3px); }
+    70% { transform: scale(1.12); opacity: 1; filter: blur(1px); }
+    100% { transform: scale(.82); opacity: 1; filter: blur(0); }
+}
+
+@keyframes chestShockwave {
+    0% { opacity: .9; transform: scale(.45); }
+    100% { opacity: 0; transform: scale(2.25); }
+}
+
+@keyframes chestStageRecoil {
+    0%, 100% { transform: translateY(0); }
+    35% { transform: translateY(.35rem); }
+    70% { transform: translateY(-.18rem); }
+}
+
+@keyframes chestParticleBurst {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(.2) rotate(0); }
+    18%, 72% { opacity: 1; }
+    100% { opacity: 0; transform: translate(calc(-50% + var(--particle-x)), calc(-50% + var(--particle-y))) scale(1.3) rotate(var(--particle-rotation)); }
+}
+
+@keyframes chestReveal {
+    0% { opacity: 0; transform: translateY(1rem) scale(.72); }
+    65% { opacity: 1; transform: translateY(-.12rem) scale(1.04); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .chest-stage::after,
+    .chest-particles {
+        display: none !important;
+    }
+
+    .chest-stage::before,
+    .chest-button,
+    .chest-button img,
+    .chest-reveal.is-revealed {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+    }
+}
+
 .student-topbar {
     padding: 0;
 }
@@ -211,12 +491,32 @@ body {
     }
 
     #studentSessionControls {
-        justify-content: space-between;
+        justify-content: flex-end;
+        flex-wrap: wrap;
         width: 100%;
     }
 
     #currentEmailBadge {
-        max-width: calc(100% - 5.5rem);
+        flex: 1 1 11rem;
+        max-width: 100%;
+        text-align: left;
+    }
+
+    .chest-dialog {
+        margin: 0.5rem;
+    }
+
+    .chest-modal-content .modal-header,
+    .chest-modal-content .modal-body {
+        padding-inline: 1rem;
+    }
+
+    .chest-stage {
+        min-height: 14rem;
+    }
+
+    .chest-button {
+        width: min(14rem, 68vw);
     }
 
     .points-metrics {

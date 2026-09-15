@@ -79,7 +79,7 @@ $env:EXPERIMENT_ENV_FILE = '.env.test'
 
 Set `EXPERIMENT_TEST_DATABASE_RESET_ALLOWED=true` only if that database may be dropped and rebuilt during the remaining integration checks. The application continues to load `.env` by default; `.env.test` is used only when `EXPERIMENT_ENV_FILE` explicitly selects it.
 
-The V4 runtime adds durable student chest events to the V3 course, authentication, experiment, confirmation, and audit foundations. Each future unconfirmed-to-confirmed participation transition atomically creates or reactivates one server-owned chest event. The nullable participation reward-snapshot column remains only for schema compatibility and is not used to calculate points. Student chest presentation is delivered by the next milestone in `.agents/PLAN_CHESTS.md`.
+The V4 runtime adds durable student chest events to the V3 course, authentication, experiment, confirmation, and audit foundations. Each future unconfirmed-to-confirmed participation transition atomically creates or reactivates one server-owned chest event. The nullable participation reward-snapshot column remains only for schema compatibility and is not used to calculate points. Pending chests appear in the authenticated student navbar and open through a local, accessible visual queue; opening only acknowledges the existing event and never changes points.
 
 ## Student Flow
 
@@ -92,7 +92,7 @@ The V4 runtime adds durable student chest events to the V3 course, authenticatio
 7. Staff-entered appointment text appears in the access information when available.
 8. `Angerechnet` and the experiment's current reward are shown after staff confirms the participation. Every confirmed experiment contributes its full current reward, including above the course target; editing a reward recalculates existing confirmed totals.
 9. A points card above the experiment table shows the student's course, earned points, course target, percentage, and an accessible progress bar. Percentages can exceed 100%, while the bar stops visually at 100%. Missing and zero targets omit the percentage and determinate bar.
-10. Every future staff approval persists exactly one student-owned chest event. Unopened events survive logout, can be listed through `GET api/student_chests.php`, and are acknowledged idempotently through the CSRF-protected `POST api/open_student_chest.php`. The visual queue is added in the subsequent milestone.
+10. Every future staff approval persists exactly one student-owned chest event. Unopened events survive logout and appear as a count in the navbar. Following an explicit login, the first pending chest opens automatically; a restored browser session shows the count without moving focus. Students open accumulated chests one at a time, and a failed acknowledgement can be retried without replaying the animation. Reduced-motion preferences skip the choreography and reveal the same content immediately.
 11. The navbar shows the authenticated email, and the server-side session can be ended with `Beenden`.
 
 Student codes are never stored in browser storage. The server stores password hashes only, throttles repeated login failures, and invalidates an active student session when that student's code version changes.
@@ -174,11 +174,13 @@ php tests/text_quality_test.php
 php tests/js_regression_test.php
 php tests/api_smoke_test.php
 node tests/points_ui_test.js
+npm run test:chests
 npm run test:browser
 ```
 
 `points_ui_test.js` covers decimal point formatting, target states, visible percentages, visual-width clamping, and reward display before and after confirmation.
-`js_regression_test.php` catches focused management- and student-client regressions that are not covered by JavaScript syntax checking alone, including progress-bar accessibility and visual containment guards.
+`chests_ui_test.js` covers the full and reduced-motion state sequences, centralized timing, local RGBA asset dimensions, duplicate activation, queue reset, retry without replay, and stale-callback cancellation.
+`js_regression_test.php` catches focused management- and student-client regressions that are not covered by JavaScript syntax checking alone, including progress-bar accessibility, semantic chest markup, deterministic particles, reduced-motion coverage, safe text rendering, and visual containment guards.
 `api_smoke_test.php` uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable.
 When SQLite support is available, it covers student and administrator authentication, session-bound identity, CSRF enforcement, grouped roster upserts, course guards, one-time generated-code CSV delivery, hash-only persistence, manual code rotation, login-code session revocation, course-targeted experiment visibility, opening schedules, participant maxima, ready-to-open validation, private notes, explicit undated slots, the student claim/retrieval flow, slot capacity enforcement, management setup actions, allowlist removal guards, participant selection and clearing, condition assignment and clearing, access-pool import, staff-entered access values, dynamic uncapped rewards, course-specific targets and percentages, confirmation, bulk grading operations, durable exactly-once chest creation and acknowledgement, chest ownership/history/revocation/reactivation, confirmation rollback on chest failure, appointment retrieval, reset, randomization, audit events, and the management approval report endpoint.
 The report coverage includes the distinction between opened access and confirmed `Angerechnet` approval as well as dynamically calculated totals and course targets.

@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "test:points": "node tests/points_ui_test.js",
+    "test:chests": "node tests/chests_ui_test.js",
     "test:browser": "node tests/browser/run.mjs"
   },
   "devDependencies": {

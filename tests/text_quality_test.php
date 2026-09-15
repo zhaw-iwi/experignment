@@ -15,6 +15,7 @@ $htmlFiles = [
 
 $codeFiles = [
     __DIR__ . '/../assets/app.js',
+    __DIR__ . '/../assets/chests.js',
     __DIR__ . '/../manage/manage.js',
     __DIR__ . '/../api/student_overview.php',
     __DIR__ . '/../api/claim.php',

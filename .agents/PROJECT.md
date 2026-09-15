@@ -35,7 +35,7 @@ Experiment Assignment App is a PHP/MySQL application for managing student experi
 - [x] 2026-09-15: Isolated browser and deployment acceptance
 - [x] 2026-09-15: V4 chest persistence and live migration
 - [x] 2026-09-15: Student chest exactly-once lifecycle and API
-- [ ] Student chest queue, visual, and accessibility
+- [x] 2026-09-15: Student chest queue, visual, and accessibility
 - [ ] Student chest browser acceptance and production handoff
 - [ ] Clean production deployment and semester activation
 
@@ -1568,3 +1568,62 @@ Observed on 2026-09-15:
 ### Next Steps
 
 - Implement Milestone 3 from `.agents/PLAN_CHESTS.md`: local chest assets, shared queue/controller, complete deterministic choreography, reduced motion, failure handling, and accessibility.
+
+## 2026-09-15: Student Chest Queue, Visual, And Accessibility
+
+### Goal
+
+Turn durable pending chest events into a responsive, accessible, deterministic student queue without coupling point credit or visual settlement to acknowledgement latency.
+
+### What Changed
+
+- Added a persistent authenticated-navbar chest count and one semantic Bootstrap modal with a native opening button, empty-alt decorative art, 14 hidden decorative particles, explicit status/retry/continue controls, and a dedicated polite result announcement.
+- Added `assets/chests.js`, a shared FIFO controller with explicit phases, synchronous duplicate-activation guards, centralized 700/120/360/430 ms timing, cancellable delays, a presentation-generation boundary, and full reset between events.
+- Kept acknowledgement off the animation critical path. A failed request leaves the revealed result visible and offers an idempotent retry without replay; late success/failure callbacks cannot mutate a replacement presentation.
+- Integrated pending reads after the student overview, automatic presentation only after explicit login, count-only behavior after session restoration, authoritative refetch on modal close/queue completion, and cancellation on logout.
+- Implemented the complete deterministic pressure, open-image swap, spring burst, shockwave, recoil, 14-particle, reveal, stable-open, and particle-tail choreography.
+- Added a JavaScript reduced-motion branch that skips every artificial delay and motion class, plus component-scoped defensive reduced-motion CSS.
+- Added original locally hosted closed and open-gold RGBA chest art under `assets/chests/`, with matching intrinsic dimensions and documented OpenAI generation provenance in `ASSET_NOTES.md`.
+- Added focused pure Node coverage for full/reduced sequences, timing, asset mapping and PNG metadata, duplicate activation, retry without replay, queue reset, cancellation, and late acknowledgement isolation.
+- Expanded static regression and text-quality checks for script order, semantic markup, exactly 14 particles, local assets, reduced motion, deterministic choreography, safe text insertion, and the new controller copy.
+
+### How To Run
+
+No additional database change is required after the V4 migration from Milestone 1.
+
+- Sign in explicitly as a student with pending events to receive the first chest automatically.
+- Close the modal or restore an existing session to leave the pending count available in the navbar without unexpected focus movement.
+- Use `Truhen` to reopen the FIFO queue; every event starts closed and advances only after a successful acknowledgement.
+
+### How To Test
+
+- `node --check assets/chests.js`
+- `node --check assets/app.js`
+- `npm run test:chests`
+- `php tests/js_regression_test.php`
+- `php tests/text_quality_test.php`
+- `php tests/config_test.php`
+- `php tests/schema_test.php`
+- `php tests/validation_test.php`
+- `php tests/api_smoke_test.php`
+- `node tests/points_ui_test.js`
+- `npm run test:browser`
+
+Observed on 2026-09-15:
+
+- Every PHP file and all three application JavaScript files passed syntax validation.
+- All six PHP test scripts plus the pure points and focused chest-controller tests passed.
+- All seven existing isolated Chromium student-points scenarios passed without regressions.
+- Both PNGs have matching 1254 x 1254 intrinsic dimensions, RGBA color type, transparent corners, and local runtime paths.
+- `git diff --check` passed.
+
+### Known Issues And Decisions
+
+- The initial release intentionally supports only the stable server-owned `gold` variant; unknown tokens fall back to gold in one centralized mapping.
+- The generated PNG originals are retained losslessly because no repository image optimizer was available; the provenance note records this explicitly.
+- Opening content names the credited experiment but does not freeze or display a point value, because current experiment rewards remain the authoritative dynamic total.
+- Browser-level animation, network-failure, focus, mobile-overflow, and visual screenshot acceptance is Milestone 4; this milestone supplies deterministic unit/static coverage and the production UI implementation.
+
+### Next Steps
+
+- Implement Milestone 4 from `.agents/PLAN_CHESTS.md`: isolated Playwright chest fixtures and full/reduced-motion, queue, failure, cleanup, focus, responsive, screenshot, and production-handoff acceptance.

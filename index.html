@@ -18,6 +18,16 @@
     <div class="student-navbar-inner">
         <span class="navbar-brand mb-0">Experimente</span>
         <div id="studentSessionControls" class="d-flex gap-2 align-items-center ms-lg-auto d-none">
+            <button
+                id="studentChestInbox"
+                type="button"
+                class="btn btn-warning btn-sm chest-inbox-button d-none"
+                aria-haspopup="dialog"
+                aria-controls="studentChestModal"
+                disabled
+            >
+                Truhen <span id="studentChestCount" class="badge text-bg-dark">0</span>
+            </button>
             <span id="currentEmailBadge" class="badge text-bg-light"></span>
             <button id="changeEmailButton" type="button" class="btn btn-outline-secondary btn-sm">Beenden</button>
         </div>
@@ -94,12 +104,70 @@
     </div>
 </main>
 
+<div
+    id="studentChestModal"
+    class="modal fade"
+    tabindex="-1"
+    aria-labelledby="studentChestDialogTitle"
+    aria-describedby="studentChestPrompt"
+    aria-hidden="true"
+>
+    <div class="modal-dialog modal-dialog-centered chest-dialog">
+        <div class="modal-content chest-modal-content">
+            <div class="modal-header border-0 pb-0">
+                <div>
+                    <p class="eyebrow mb-1">Neue Anrechnung</p>
+                    <h2 id="studentChestDialogTitle" class="h5 mb-0">Ihre Belohnungstruhe</h2>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Truhe schließen"></button>
+            </div>
+            <div class="modal-body pt-0">
+                <section class="chest-presentation" aria-labelledby="studentChestRevealTitle">
+                    <p id="studentChestPosition" class="small text-secondary text-center mb-0"></p>
+                    <div id="studentChestStage" class="chest-stage" data-variant="gold">
+                        <div class="chest-particles" aria-hidden="true">
+                            <span></span><span class="chest-star"></span>
+                            <span></span><span class="chest-star"></span>
+                            <span></span><span class="chest-star"></span>
+                            <span></span><span class="chest-star"></span>
+                            <span></span><span class="chest-star"></span>
+                            <span></span><span class="chest-star"></span>
+                            <span></span><span class="chest-star"></span>
+                        </div>
+                        <button
+                            id="studentChestOpenButton"
+                            class="chest-button"
+                            type="button"
+                            aria-label="Truhe öffnen"
+                            disabled
+                        >
+                            <img id="studentChestImage" src="assets/chests/chest-closed.png" alt="" width="1254" height="1254">
+                        </button>
+                    </div>
+                    <p id="studentChestPrompt" class="chest-prompt text-center mb-0">Öffnen Sie die Truhe, wenn Sie bereit sind.</p>
+                    <div id="studentChestReveal" class="chest-reveal text-center" hidden>
+                        <h3 id="studentChestRevealTitle" class="h4" tabindex="-1"></h3>
+                        <p id="studentChestBody" class="mb-3"></p>
+                        <p id="studentChestSaveStatus" class="chest-save-status" role="status" hidden></p>
+                        <div class="d-flex flex-wrap justify-content-center gap-2">
+                            <button id="studentChestRetry" type="button" class="btn btn-outline-danger" hidden>Erneut speichern</button>
+                            <button id="studentChestContinue" type="button" class="btn btn-primary" hidden disabled>Weiter</button>
+                        </div>
+                    </div>
+                    <p id="studentChestAnnouncement" class="visually-hidden" role="status" aria-live="polite"></p>
+                </section>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script
     src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
     integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
     crossorigin="anonymous"
 ></script>
 <script src="assets/points.js" defer></script>
+<script src="assets/chests.js" defer></script>
 <script src="assets/app.js" defer></script>
 </body>
 </html>

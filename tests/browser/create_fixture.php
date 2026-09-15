@@ -100,6 +100,19 @@ $pdo->exec('CREATE TABLE participations (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(experiment_id, student_email)
 )');
+$pdo->exec('CREATE TABLE student_chest_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_email TEXT NOT NULL,
+    source_participation_id INTEGER NULL,
+    event_type TEXT NOT NULL DEFAULT "participation_credited",
+    trigger_scope TEXT NOT NULL,
+    variant TEXT NOT NULL DEFAULT "gold",
+    experiment_name_snapshot TEXT NOT NULL,
+    earned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    opened_at TEXT NULL,
+    revoked_at TEXT NULL,
+    UNIQUE(event_type, trigger_scope)
+)');
 $pdo->exec('CREATE TABLE appointments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     participation_id INTEGER NOT NULL UNIQUE,

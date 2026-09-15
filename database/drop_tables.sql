@@ -6,6 +6,7 @@ DROP TABLE IF EXISTS authentication_throttles;
 DROP TABLE IF EXISTS appointments;
 DROP TABLE IF EXISTS slot_choices;
 DROP TABLE IF EXISTS participation_field_values;
+DROP TABLE IF EXISTS student_chest_events;
 DROP TABLE IF EXISTS eligibility_field_values;
 DROP TABLE IF EXISTS randomization_run_allocations;
 DROP TABLE IF EXISTS participations;

@@ -1,6 +1,6 @@
 # Production Cutover
 
-This is the operational checklist for replacing the previous-semester installation with a clean V3 database. The old dump is historical/rollback material only; it is not an input to the V3 database.
+This is the operational checklist for replacing the previous-semester installation with a clean V4 database or upgrading an existing V3 installation through the additive student-chest migration. Old dumps are historical/rollback material only.
 
 ## 1. Prepare And Preserve Rollback
 
@@ -8,9 +8,9 @@ This is the operational checklist for replacing the previous-semester installati
 2. Export the current production database and archive the current deployed files outside the public web root.
 3. Store that backup securely because it contains student and experiment-access data.
 4. Record the currently deployed Git commit and database name so the old installation can be restored if needed.
-5. Rotate the database password that appeared in repository history. Do not reuse it for V3.
+5. Rotate the database password that appeared in repository history. Do not reuse it for V4.
 
-Although previous-semester records are not needed operationally, keeping one restricted rollback backup until V3 acceptance is complete is safer than making the cutover immediately irreversible.
+Although previous-semester records are not needed operationally, keeping one restricted rollback backup until V4 acceptance is complete is safer than making the cutover immediately irreversible.
 
 ## 2. Provision Production Configuration
 
@@ -34,16 +34,16 @@ Recommended path:
 3. Confirm that the import completed without warnings or failed statements.
 4. Optionally import `database/seed.sql`; it is intentionally empty and inserts no groups, students, experiments, or runtime records.
 5. Do not import `database/seed_examples.sql` in production.
-6. Do not import any `e93ud_*.sql` or `live_database*.sql` dump into V3.
+6. Do not import any `e93ud_*.sql` or `live_database*.sql` dump into V4.
 
 Fallback when a new database cannot be provisioned:
 
 1. Confirm the rollback export from section 1 can be opened and is stored outside the host.
 2. Put the application into maintenance mode.
-3. Import `database/drop_tables.sql` into the old application database. This permanently drops both V2 and V3 application tables.
+3. Import `database/drop_tables.sql` into the old application database. This permanently drops the current application tables.
 4. Import `database/schema.sql`, followed optionally by the empty `database/seed.sql`.
 
-`database/reset_all_data.sql` is for clearing an existing V3 schema. It is not a V2-to-V3 migration and should not replace the drop/rebuild sequence during this cutover.
+`database/reset_all_data.sql` is for clearing an existing V4 schema. It is not a V2-to-V4 migration and should not replace the drop/rebuild sequence during this cutover.
 
 ## 4. Run The Deployment Preflight
 
@@ -67,13 +67,13 @@ The browser endpoint is disabled by default, refuses administrator-code submissi
 Expected result: zero errors. A root-account warning must be resolved by switching to a dedicated runtime account. Both interfaces check:
 
 - a valid administrator password hash, positive session timeouts, secure cookies, and application timezone;
-- MySQL/MariaDB connectivity, schema version 3, all 20 required tables and key columns, and InnoDB storage;
+- MySQL/MariaDB connectivity, schema version 4, all 21 required tables and key columns, and InnoDB storage;
 - an empty semester/runtime state;
 - runtime `SELECT`/`INSERT`/`UPDATE`/`DELETE` permissions using a transaction that is rolled back.
 
 Also verify these HTTP boundaries before importing student data:
 
-- `api/bootstrap.php` returns a version-3 JSON response;
+- `api/bootstrap.php` returns a version-4 JSON response;
 - `manage/index.html` shows the administrator login;
 - an unauthenticated request to `api/manage/dashboard.php` is rejected;
 - direct browser access to `.env`, `config/`, `database/`, `scripts/`, and `tests/` is rejected;
@@ -109,7 +109,7 @@ Use a dedicated test student in each relevant course and verify:
 
 Remove or close temporary acceptance experiments after testing. Retain the old rollback backup until the administrator has signed off the roster counts, one-time code delivery, audience rules, a real claim, grading totals, and audit visibility.
 
-### Student Points Visualization Release
+### Earlier Student Points Visualization Release
 
 Database migration required: **no**. This update continues using the V3 `student_groups.max_credits`, `allowed_students.group_id`, `experiments.reward_credits`, and `participations.confirmed_at` columns. The nullable reward-snapshot column remains for compatibility but is not used for totals.
 
@@ -131,10 +131,23 @@ WHERE TABLE_SCHEMA = DATABASE()
 ORDER BY TABLE_NAME, COLUMN_NAME;
 ```
 
-Require schema version `3` and all five listed columns. If those checks fail, stop and plan the V3 upgrade separately. Do not apply a database change as part of this feature.
+For that earlier points-only deployment, schema version `3` and all five listed columns were required. The current application now requires the V4 migration described below; do not use this historical points-only check as the current deployment gate.
 
 After deploying files, verify one test student below target and one above target without placing student credentials in screenshots or logs. Confirm the report totals match the student cards. If acceptance fails, restore the previous application files; this feature requires no database rollback.
 
+### Student Chest Persistence V4 Migration
+
+Database migration required: **yes** when upgrading an existing V3 installation. This persistence milestone adds an unused event table; it does not yet create or display chests and it never backfills existing confirmations.
+
+1. Take and verify a full live database backup.
+2. In phpMyAdmin, run the commented precondition queries at the top of `database/migrations/2026-09-15-student-chests/migration.sql`.
+3. Require schema version `3` and no existing `student_chest_events` table.
+4. Import that exact migration file.
+5. Run its post-migration queries and require schema version `4`, the documented table definition, and `chest_event_count = 0`.
+6. Deploy the matching V4 application files and run the deployment preflight without `--expect-empty` on an active installation.
+
+The migration uses MySQL DDL, which auto-commits. It intentionally fails on a rerun rather than silently accepting an incompatible table. If it fails partway through, inspect the error and restore the verified backup before retrying. Once future milestones create chest history, rolling application files back should leave the V4 table intact; do not drop student history simply to report an older schema version.
+
 ## 7. Rollback
 
-With the recommended separate-database approach, put the site in maintenance mode, restore the previous deployed files and previous private configuration, and point them back to the archived database. With an in-place rebuild, restore the database export before restoring the previous files. Never mix V2 application files with the V3 schema.
+With the recommended separate-database approach, put the site in maintenance mode, restore the previous deployed files and previous private configuration, and point them back to the archived database. With an in-place rebuild or failed V3-to-V4 migration, restore the database export before restoring the previous files. Never deploy application files that require V4 against a V3 schema.

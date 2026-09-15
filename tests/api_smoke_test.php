@@ -417,6 +417,19 @@ function setup_sqlite_database(string $dbPath): void
         UNIQUE(experiment_id, student_email),
         UNIQUE(access_pool_row_id)
     )');
+    $pdo->exec('CREATE TABLE student_chest_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_email TEXT NOT NULL,
+        source_participation_id INTEGER NULL,
+        event_type TEXT NOT NULL DEFAULT "participation_credited",
+        trigger_scope TEXT NOT NULL,
+        variant TEXT NOT NULL DEFAULT "gold",
+        experiment_name_snapshot TEXT NOT NULL,
+        earned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        opened_at TEXT NULL,
+        revoked_at TEXT NULL,
+        UNIQUE(event_type, trigger_scope)
+    )');
     $pdo->exec('CREATE TABLE participation_field_values (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         participation_id INTEGER NOT NULL,
@@ -594,7 +607,7 @@ try {
 
     $response = make_request($baseUrl, 'GET', '/api/bootstrap.php');
     assert_equals($response['status'], 200, 'bootstrap should return 200');
-    assert_equals($response['body']['version'] ?? null, 3, 'bootstrap should expose V3');
+    assert_equals($response['body']['version'] ?? null, 4, 'bootstrap should expose V4');
 
     $response = make_request($baseUrl, 'GET', '/scripts/deployment_preflight.php');
     assert_equals($response['status'], 404, 'CLI preflight should reject direct web access');

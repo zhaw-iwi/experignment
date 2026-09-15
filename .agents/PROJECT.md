@@ -33,6 +33,10 @@ Experiment Assignment App is a PHP/MySQL application for managing student experi
 - [x] 2026-09-15: Dynamic uncapped reward semantics
 - [x] 2026-09-15: Accessible student points visualization
 - [x] 2026-09-15: Isolated browser and deployment acceptance
+- [x] 2026-09-15: V4 chest persistence and live migration
+- [ ] Student chest exactly-once lifecycle and API
+- [ ] Student chest queue, visual, and accessibility
+- [ ] Student chest browser acceptance and production handoff
 - [ ] Clean production deployment and semester activation
 
 ## 2026-05-11: V2 Greenfield Multi-Experiment Implementation
@@ -1437,3 +1441,66 @@ Observed on 2026-09-15:
 ### Next Steps
 
 - Follow `docs/PRODUCTION_CUTOVER.md`: take a live backup, run the read-only V3 schema checks, deploy application files, and verify one below-target and one above-target test student before general use.
+
+## 2026-09-15: V4 Chest Persistence And Live Migration
+
+### Goal
+
+Introduce the durable student chest-event data model through an additive, live-safe V3-to-V4 migration without yet changing confirmation or student-facing behavior.
+
+### What Changed
+
+- Added `student_chest_events` with authenticated-student ownership, nullable participation linkage, immutable trigger identity, stable variant and experiment-name snapshot, earned/opened/revoked timestamps, a unique trigger constraint, and pending-query indexes.
+- Advanced the canonical schema and readiness endpoint to version 4 and the production preflight to 21 required InnoDB tables.
+- Added `database/migrations/2026-09-15-student-chests/migration.sql` for direct phpMyAdmin execution against an existing V3 database.
+- Made the migration deliberately create no rows for historical confirmations and added static regression coverage for the no-backfill contract.
+- Updated experiment reset, semester reset, and schema-drop scripts in foreign-key-safe order.
+- Updated the SQLite HTTP and browser fixtures so later chest behavior can be tested without live data.
+- Added `.agents/PLAN_CHESTS.md` and retained `.agents/skills/GAME_CHEST.md` as the milestone and interaction contracts.
+- Updated README, canonical context, and production cutover documentation with V4 prerequisites, verification, and rollback constraints.
+
+### How To Run
+
+For a new empty database, import `database/schema.sql` and the intentionally empty `database/seed.sql`.
+
+For an existing V3 database:
+
+1. Take and verify a full backup.
+2. Run the commented precondition queries in `database/migrations/2026-09-15-student-chests/migration.sql`.
+3. Require schema version 3 and no existing `student_chest_events` table.
+4. Import that migration in phpMyAdmin.
+5. Run its verification queries and require schema version 4 and zero chest rows.
+
+### How To Test
+
+- `Get-ChildItem -Recurse -Filter *.php | ForEach-Object { php -l $_.FullName }`
+- `node --check assets/app.js`
+- `node --check manage/manage.js`
+- `php tests/config_test.php`
+- `php tests/schema_test.php`
+- `php tests/validation_test.php`
+- `php tests/text_quality_test.php`
+- `php tests/js_regression_test.php`
+- `php tests/api_smoke_test.php`
+- `node tests/points_ui_test.js`
+- `npm run test:browser`
+
+Observed on 2026-09-15:
+
+- Every PHP file passed syntax validation.
+- Both application JavaScript files passed syntax validation.
+- All six PHP test scripts and the pure points test passed.
+- All seven existing Chromium scenarios passed against the updated disposable V4-shaped SQLite fixture.
+- `git diff --check` passed.
+
+### Known Issues And Decisions
+
+- This milestone adds persistence only; no confirmation path writes chest events and no student UI reads them until Milestones 2 and 3.
+- The migration is additive and safe for the still-running V3 application, but subsequent V4 application behavior must not be deployed before the migration.
+- No `.env.test` exists in this workspace, so the destructive disposable-MySQL migration run was not authorized. The exact migration must be exercised against a reset-approved MySQL target before live execution, or its absence recorded in the deployment sign-off.
+- MySQL DDL auto-commits. A verified pre-migration backup is the reliable rollback if migration execution fails.
+- Existing confirmed participations are intentionally not backfilled.
+
+### Next Steps
+
+- Implement Milestone 2 from `.agents/PLAN_CHESTS.md`: exactly-once creation/reactivation/revocation, student-scoped pending/history reads, and idempotent acknowledgement.

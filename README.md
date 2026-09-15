@@ -14,7 +14,8 @@ PHP/MySQL web app for assigning experiment access information to ZHAW students a
 - `scripts/deployment_preflight.php`: production configuration and clean-database verifier
 - `preflight/index.php`: temporarily enabled, administrator-protected browser preflight
 - `docs/PRODUCTION_CUTOVER.md`: phpMyAdmin deployment and semester activation checklist
-- `database/schema.sql`: V3 schema
+- `database/schema.sql`: current V4 schema
+- `database/migrations/2026-09-15-student-chests/migration.sql`: additive V3-to-V4 live migration
 - `database/seed.sql`: intentionally empty production seed
 - `database/seed_examples.sql`: optional representative demo experiments and access data
 - `database/reset.sql`: remove experiment setup/runtime data while preserving groups and students
@@ -34,6 +35,8 @@ mysql -u USER -p DATABASE < database/seed.sql
 ```
 
 `seed.sql` intentionally contains no semester-specific records. Import course groups and students through the management workflow after deployment. Use `database/seed_examples.sql` only for a throwaway/demo database because it creates representative example groups, students, experiments, conditions, selected participants, staff-prepared values, access pools, and slots. Example students intentionally start without access codes; create and download them from the management roster before testing student login.
+
+To upgrade an existing V3 installation in place, first take a verified backup and then import `database/migrations/2026-09-15-student-chests/migration.sql` through phpMyAdmin. The migration adds the durable `student_chest_events` store and advances the schema to V4. It deliberately creates zero chest rows for existing confirmations; only approvals made after the completed feature is deployed will earn chests. Run the commented precondition and verification queries in the migration file exactly as documented.
 
 Use `database/reset.sql` when you want to remove all experiment configuration and runtime data from a deployment while keeping student groups, students, and their login-code state.
 
@@ -76,7 +79,7 @@ $env:EXPERIMENT_ENV_FILE = '.env.test'
 
 Set `EXPERIMENT_TEST_DATABASE_RESET_ALLOWED=true` only if that database may be dropped and rebuilt during the remaining integration checks. The application continues to load `.env` by default; `.env.test` is used only when `EXPERIMENT_ENV_FILE` explicitly selects it.
 
-The V3 runtime uses course groups, student login-code metadata, authentication throttling, experiment schedules/capacities/rewards, group eligibility, explicitly undated slots, confirmation state, and audit events. The nullable participation reward-snapshot column remains only for schema compatibility and is not used to calculate points.
+The V4 runtime schema adds durable student chest events to the V3 course, authentication, experiment, confirmation, and audit foundations. The nullable participation reward-snapshot column remains only for schema compatibility and is not used to calculate points. The first chest milestone introduces persistence only; chest creation and student presentation are delivered by the subsequent milestones in `.agents/PLAN_CHESTS.md`.
 
 ## Student Flow
 

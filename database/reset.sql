@@ -6,6 +6,7 @@ SET FOREIGN_KEY_CHECKS = 0;
 TRUNCATE TABLE appointments;
 TRUNCATE TABLE slot_choices;
 TRUNCATE TABLE participation_field_values;
+TRUNCATE TABLE student_chest_events;
 TRUNCATE TABLE participations;
 TRUNCATE TABLE eligibility_field_values;
 TRUNCATE TABLE randomization_run_allocations;

@@ -8,7 +8,7 @@ CREATE TABLE schema_versions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO schema_versions (version_number, description)
-VALUES (3, 'Semester preparation schema foundation');
+VALUES (4, 'Student participation chest events');
 
 CREATE TABLE student_groups (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -247,6 +247,31 @@ CREATE TABLE participations (
         ON UPDATE RESTRICT,
     CONSTRAINT fk_participations_access_pool_row
         FOREIGN KEY (access_pool_row_id) REFERENCES access_pool_rows (id)
+        ON DELETE SET NULL
+        ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE student_chest_events (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    student_email VARCHAR(255) NOT NULL,
+    source_participation_id BIGINT UNSIGNED NULL,
+    event_type VARCHAR(64) NOT NULL DEFAULT 'participation_credited',
+    trigger_scope VARCHAR(191) NOT NULL,
+    variant VARCHAR(32) NOT NULL DEFAULT 'gold',
+    experiment_name_snapshot VARCHAR(255) NOT NULL,
+    earned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    opened_at TIMESTAMP NULL DEFAULT NULL,
+    revoked_at TIMESTAMP NULL DEFAULT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_student_chest_events_trigger (event_type, trigger_scope),
+    KEY idx_student_chest_events_pending (student_email, opened_at, revoked_at, earned_at, id),
+    KEY idx_student_chest_events_participation (source_participation_id),
+    CONSTRAINT fk_student_chest_events_student
+        FOREIGN KEY (student_email) REFERENCES allowed_students (student_email)
+        ON DELETE CASCADE
+        ON UPDATE RESTRICT,
+    CONSTRAINT fk_student_chest_events_participation
+        FOREIGN KEY (source_participation_id) REFERENCES participations (id)
         ON DELETE SET NULL
         ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

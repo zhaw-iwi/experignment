@@ -11,7 +11,7 @@ The app has two browser UIs:
 - `index.html`: student-facing page.
 - `manage/index.html`: staff-facing management page.
 
-The deployed behavior began as V2, a greenfield continuation of an older one-experiment app. The V3 semester-preparation application behavior is complete and its clean production cutover is being prepared. Backward compatibility with the old V1 schema is intentionally not preserved.
+The deployed behavior began as V2, a greenfield continuation of an older one-experiment app. The V3 semester-preparation application behavior is complete. The canonical V4 schema adds durable student participation chest events; the chest behavior is being delivered incrementally according to `.agents/PLAN_CHESTS.md`. Backward compatibility with the old V1 schema is intentionally not preserved.
 
 ## Current Product Decisions
 
@@ -197,7 +197,8 @@ The student UI should:
 
 ## Important Files
 
-- `database/schema.sql`: canonical V3 schema.
+- `database/schema.sql`: canonical V4 schema.
+- `database/migrations/2026-09-15-student-chests/migration.sql`: additive, phpMyAdmin-compatible V3-to-V4 migration with no historical chest backfill.
 - `database/seed.sql`: intentionally empty production seed; semester rosters are imported through management.
 - `database/seed_examples.sql`: self-contained demo/dev data with sample students, representative experiments, access fields, staff-prepared values, access pools, and slots.
 - `database/reset.sql`: removes experiment setup and runtime data while preserving student groups, students, login-code state, and schema metadata.
@@ -232,11 +233,11 @@ The student UI should:
 
 ## Deployment And Configuration
 
-Deploy the V3 schema into an empty database. Previous-semester records will not be migrated into the prepared deployment.
+Deploy the V4 schema into an empty database. For an existing V3 live installation, take a verified backup and apply the additive student-chest migration before deploying V4 application files. The migration does not backfill existing confirmations.
 
 Database deployment settings are loaded from process environment variables or the ignored root `.env` file. `EXPERIMENT_DB_DSN` remains available as an optional override, mostly for tests. The database password that previously appeared in tracked configuration must be rotated before the next deployment.
 
-The recommended cutover provisions a separate clean database and dedicated runtime account, imports `schema.sql` and the intentionally empty `seed.sql` in phpMyAdmin, then runs `php scripts/deployment_preflight.php --expect-empty`. The in-place fallback requires a verified backup followed by `drop_tables.sql` and a clean schema import; `reset_all_data.sql` is for an already-V3 schema, not V2 migration.
+The recommended clean cutover provisions a separate database and dedicated runtime account, imports `schema.sql` and the intentionally empty `seed.sql` in phpMyAdmin, then runs `php scripts/deployment_preflight.php --expect-empty`. The existing-V3 upgrade path instead applies the additive chest migration after a verified backup. The destructive fallback requires a verified backup followed by `drop_tables.sql` and a clean schema import; `reset_all_data.sql` is for an already-current schema, not a V2 migration.
 
 Hosts without console access can temporarily set `PREFLIGHT_ENABLED=true` and use `/preflight/`. The browser endpoint runs the same checks after administrator-code and CSRF verification, must be accessed over HTTPS, and must be disabled again immediately after use.
 

@@ -26,7 +26,7 @@ if (PHP_SAPI !== 'cli' && !$authorizedBrowserRun) {
 $arguments = array_slice($argv, 1);
 if (in_array('--help', $arguments, true)) {
     deployment_preflight_write("Usage: php scripts/deployment_preflight.php [--expect-empty]\n");
-    deployment_preflight_write("Checks production configuration, the V3 MySQL/MariaDB schema, runtime database permissions, and optionally an empty install.\n");
+    deployment_preflight_write("Checks production configuration, the V4 MySQL/MariaDB schema, runtime database permissions, and optionally an empty install.\n");
     exit(0);
 }
 
@@ -117,6 +117,7 @@ $requiredColumns = [
     'access_pool_rows' => ['experiment_id', 'assigned_participation_id'],
     'access_pool_values' => ['pool_row_id', 'field_id', 'field_value'],
     'participations' => ['experiment_id', 'student_email', 'confirmed_at', 'reward_credits_snapshot'],
+    'student_chest_events' => ['student_email', 'source_participation_id', 'event_type', 'trigger_scope', 'variant', 'experiment_name_snapshot', 'earned_at', 'opened_at', 'revoked_at'],
     'participation_field_values' => ['participation_id', 'field_id', 'field_value'],
     'time_slots' => ['experiment_id', 'starts_at', 'ends_at', 'capacity', 'is_undated'],
     'slot_choices' => ['participation_id', 'time_slot_id'],
@@ -185,15 +186,15 @@ if ($pdo instanceof PDO) {
             }
         }
         if (count($errors) === $schemaErrorCount) {
-            $pass('All 20 required V3 tables and key columns are present with InnoDB storage.');
+            $pass('All 21 required V4 tables and key columns are present with InnoDB storage.');
         }
 
         if (isset($tableEngines['schema_versions'])) {
             $schemaVersion = (int) $pdo->query('SELECT COALESCE(MAX(version_number), 0) FROM schema_versions')->fetchColumn();
-            if ($schemaVersion !== 3) {
-                $error('Expected schema version 3; found ' . $schemaVersion . '.');
+            if ($schemaVersion !== 4) {
+                $error('Expected schema version 4; found ' . $schemaVersion . '.');
             } else {
-                $pass('Schema version is 3.');
+                $pass('Schema version is 4.');
             }
         }
 

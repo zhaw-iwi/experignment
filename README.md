@@ -76,19 +76,19 @@ $env:EXPERIMENT_ENV_FILE = '.env.test'
 
 Set `EXPERIMENT_TEST_DATABASE_RESET_ALLOWED=true` only if that database may be dropped and rebuilt during the remaining integration checks. The application continues to load `.env` by default; `.env.test` is used only when `EXPERIMENT_ENV_FILE` explicitly selects it.
 
-The V3 runtime uses course groups, student login-code metadata, authentication throttling, experiment schedules/capacities/rewards, group eligibility, explicitly undated slots, reward snapshots, and audit events.
+The V3 runtime uses course groups, student login-code metadata, authentication throttling, experiment schedules/capacities/rewards, group eligibility, explicitly undated slots, confirmation state, and audit events. The nullable participation reward-snapshot column remains only for schema compatibility and is not used to calculate points.
 
 ## Student Flow
 
 1. Student enters a `@students.zhaw.ch` email address and their individual access code.
 2. The app loads experiments whose course audience and individual eligibility rules include that student.
 3. Manually closed, not-yet-open, expired, and full experiments stay visible but cannot be claimed.
-4. Available experiments can be claimed once, even after the student has reached the course credit maximum.
+4. Available experiments can be claimed once, even after the student has reached the course point target.
 5. Existing claims are retrieved through the authenticated session and show the same access information again.
 6. Slot-based experiments require one slot choice with capacity checks.
 7. Staff-entered appointment text appears in the access information when available.
-8. `Angerechnet` and the credited reward are shown after staff confirms the participation. A final reward is partially credited at the course maximum; later confirmations receive zero additional credit.
-9. The navbar shows the student's course, earned points, course maximum, and authenticated email. The server-side session can be ended with `Beenden`.
+8. `Angerechnet` and the experiment's current reward are shown after staff confirms the participation. Every confirmed experiment contributes its full current reward, including above the course target; editing a reward recalculates existing confirmed totals.
+9. The overview shows the student's course, earned points, and course target. The navbar shows the authenticated email, and the server-side session can be ended with `Beenden`.
 
 Student codes are never stored in browser storage. The server stores password hashes only, throttles repeated login failures, and invalidates an active student session when that student's code version changes.
 
@@ -103,7 +103,7 @@ It requires the administrator access code configured as `ADMIN_ACCESS_CODE_HASH`
 It supports:
 
 - adding allowed students
-- creating and editing course groups with an optional point maximum during setup
+- creating and editing course groups with an optional point target during setup
 - assigning exactly one course group to every student
 - repeatedly importing grouped rosters from `email;group` CSV, including safe membership updates and automatic creation of new course labels
 - filtering the roster by course and email
@@ -114,7 +114,7 @@ It supports:
 - creating and renaming experiments with public descriptions and private administrator notes
 - targeting an experiment to all courses or one or more selected courses, intersected with its individual eligibility mode
 - setting optional opening/closing datetimes, an optional participant maximum, and a numeric reward
-- checking ready-to-open indicators for audience, course maxima, student codes, conditions, access data, and slots
+- checking ready-to-open indicators for audience, course point targets, student codes, conditions, access data, and slots
 - blocking manual opening until every required readiness check is complete while keeping schedule/capacity recommendations advisory
 - deleting setup experiments
 - opening and closing experiments
@@ -140,7 +140,7 @@ It supports:
 - opening experiment-specific editing by clicking an experiment in the overview
 - opening experiment-specific grading from the overview
 - opening the Reports view from the navbar
-- viewing one report row per globally allowed student with `Kürzel`, course, earned points, course maximum, and one `0`/`1` approval column per experiment
+- viewing one report row per globally allowed student with `Kürzel`, course, earned points, course target, and one `0`/`1` approval column per experiment
 - sorting report columns, filtering by `Kürzel` or course, and downloading the displayed report as CSV
 - showing the access reveal time and compact access values in grading, with link fields rendered as labeled buttons
 - filtering and sorting the grading table by each data column
@@ -150,12 +150,12 @@ It supports:
 - setting appointment text
 - resetting participations
 - toggling `Angerechnet`
-- applying capped reward snapshots when `Angerechnet` is set and clearing the snapshot when it is removed
+- calculating totals from the current rewards of all `Angerechnet` experiments and clearing any legacy snapshot when confirmation is removed
 - reviewing the 100 most recent authentication, participation, provisioning, and management audit events
 - navigating overview, experiment setup, and grading through the top workflow strip
 - returning to the experiment overview through the navbar brand
 
-Access fields that already back assigned runtime values cannot be deleted or structurally changed. Existing slot capacity cannot be reduced below the number of submitted slot choices. A student's course cannot be changed after their first experiment participation, experiment course audiences cannot exclude existing participants, and course maxima cannot be lowered below already credited totals.
+Access fields that already back assigned runtime values cannot be deleted or structurally changed. Existing slot capacity cannot be reduced below the number of submitted slot choices. A student's course cannot be changed after their first experiment participation, and experiment course audiences cannot exclude existing participants. Course targets may be changed above or below earned totals without changing the earned points.
 
 For experiments with configured condition rows, access-pool imports are condition-scoped. Choose the target condition in the pool modal; the CSV for that condition includes both experiment-wide pool fields and fields specific to that condition. The experiment-wide pool option is used while no conditions exist.
 
@@ -172,6 +172,6 @@ php tests/api_smoke_test.php
 
 `js_regression_test.php` catches focused management-client regressions that are not covered by JavaScript syntax checking alone.
 `api_smoke_test.php` uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable.
-When SQLite support is available, it covers student and administrator authentication, session-bound identity, CSRF enforcement, grouped roster upserts, course guards, one-time generated-code CSV delivery, hash-only persistence, manual code rotation, login-code session revocation, course-targeted experiment visibility, opening schedules, participant maxima, ready-to-open validation, private notes, explicit undated slots, the student claim/retrieval flow, slot capacity enforcement, management setup actions, allowlist removal guards, participant selection and clearing, condition assignment and clearing, access-pool import, staff-entered access values, partial and zero capped rewards, confirmation, bulk grading operations, appointment retrieval, reset, randomization, audit events, and the management approval report endpoint.
-The report coverage includes the distinction between opened access and confirmed `Angerechnet` approval as well as credited totals and course maxima.
+When SQLite support is available, it covers student and administrator authentication, session-bound identity, CSRF enforcement, grouped roster upserts, course guards, one-time generated-code CSV delivery, hash-only persistence, manual code rotation, login-code session revocation, course-targeted experiment visibility, opening schedules, participant maxima, ready-to-open validation, private notes, explicit undated slots, the student claim/retrieval flow, slot capacity enforcement, management setup actions, allowlist removal guards, participant selection and clearing, condition assignment and clearing, access-pool import, staff-entered access values, dynamic uncapped rewards, course-specific targets and percentages, confirmation, bulk grading operations, appointment retrieval, reset, randomization, audit events, and the management approval report endpoint.
+The report coverage includes the distinction between opened access and confirmed `Angerechnet` approval as well as dynamically calculated totals and course targets.
 The smoke test also verifies browser-preflight enablement, CSRF and administrator-code protection, direct-web rejection of the CLI script, and execution of the shared check implementation.

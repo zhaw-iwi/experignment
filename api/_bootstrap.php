@@ -490,17 +490,27 @@ function experiment_audience_students(PDO $pdo, array $experiment): array
     return $statement->fetchAll();
 }
 
+function credit_percentage(float $earned, ?float $target): ?float
+{
+    if ($target === null || $target <= 0) {
+        return null;
+    }
+
+    return round(($earned / $target) * 100, 2);
+}
+
 function student_credit_summary(PDO $pdo, string $email): array
 {
     $student = fetch_allowed_student($pdo, $email);
     if ($student === null) {
-        return ['earned' => 0.0, 'maximum' => null, 'remaining' => null];
+        return ['earned' => 0.0, 'maximum' => null, 'remaining' => null, 'percentage' => null];
     }
     $statement = $pdo->prepare(
-        'SELECT COALESCE(SUM(reward_credits_snapshot), 0)
-         FROM participations
-         WHERE student_email = :student_email
-           AND confirmed_at IS NOT NULL'
+        'SELECT COALESCE(SUM(e.reward_credits), 0)
+         FROM participations p
+         INNER JOIN experiments e ON e.id = p.experiment_id
+         WHERE p.student_email = :student_email
+           AND p.confirmed_at IS NOT NULL'
     );
     $statement->execute(['student_email' => normalize_student_email($email)]);
     $earned = round((float) $statement->fetchColumn(), 2);
@@ -510,6 +520,7 @@ function student_credit_summary(PDO $pdo, string $email): array
         'earned' => $earned,
         'maximum' => $maximum,
         'remaining' => $maximum === null ? null : max(0.0, round($maximum - $earned, 2)),
+        'percentage' => credit_percentage($earned, $maximum),
     ];
 }
 
@@ -1098,7 +1109,7 @@ function experiment_student_payload(PDO $pdo, array $experiment, string $email):
         'maxParticipants' => nullable_int($experiment['max_participants'] ?? null),
         'isFull' => $isFull,
         'rewardCredits' => round((float) ($experiment['reward_credits'] ?? 0), 2),
-        'creditedReward' => $confirmed ? round((float) ($participation['reward_credits_snapshot'] ?? 0), 2) : null,
+        'creditedReward' => $confirmed ? round((float) ($experiment['reward_credits'] ?? 0), 2) : null,
         'eligibilityMode' => $experiment['eligibility_mode'],
         'conditionMode' => $experiment['condition_mode'],
         'requiresTimeSlot' => bool_value($experiment['requires_time_slot']),

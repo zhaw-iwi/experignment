@@ -21,9 +21,9 @@ The deployed behavior began as V2, a greenfield continuation of an older one-exp
 - Student and administrator sessions use secure, HTTP-only, SameSite cookies, idle expiration, login throttling, logout, and CSRF protection for writes.
 - Changing a student's login-code version invalidates that student's existing session.
 - The global roster is `allowed_students`; every student row has exactly one non-null `student_groups` membership.
-- Course groups can be created explicitly or automatically by grouped roster import. Their point maximum may remain unset during initial import but must be completed before semester opening.
+- Course groups can be created explicitly or automatically by grouped roster import. Their point target may remain unset during initial import but must be completed before semester opening.
 - Grouped roster imports are repeatable upserts: new students are added, existing course memberships are updated, and login-code hashes are preserved.
-- A student's course membership cannot be changed after the first participation because that membership determines historical credit-cap ownership and experiment audience.
+- A student's course membership cannot be changed after the first participation because that membership determines the applicable course target and experiment audience.
 - Experiment course audience and individual eligibility are independent, intersecting gates. An empty course mapping means all courses; `all_allowed` includes every student in those courses, while `selected` additionally requires an `experiment_eligibilities` row.
 - Students can claim at most one participation per visible experiment.
 - Manual open state, `opens_at`, and `closes_at` jointly control current availability. Closed, scheduled, expired, and full experiments remain visible to eligible students, but the action button is disabled and unclaimed access data is not shown.
@@ -35,18 +35,18 @@ The deployed behavior began as V2, a greenfield continuation of an older one-exp
 ## Confirmed V3 Preparation Decisions
 
 - Each student belongs to one course group; an experiment can target multiple course groups.
-- Each course group has a maximum credit total per student.
+- Each course group has its own point target per student; the target is not a hard cap.
 - Experiments have numeric reward credits, an optional maximum participant count, optional `opens_at` and `closes_at` datetimes, and admin-only notes.
-- A reward that would cross the course maximum is partially counted, although course designers should configure rewards to avoid this case.
+- Every confirmed participation contributes the experiment's full current reward. Earned totals may exceed the course target, and reward edits retroactively change computed totals.
 - Student login requires email plus a student login code. Generated codes are five lowercase alphanumeric characters containing at least one letter and one digit; manually set codes may be longer and use uppercase letters.
 - Only login-code hashes are persisted. Plaintext generated codes are available in a one-time CSV response and cannot be recovered later.
 - Generated codes are created only for students whose code hash is missing. Existing codes are never included in or replaced by that batch response.
 - Administrators can manually set or rotate one student's code; this increments the code version and immediately revokes that student's session.
 - Regenerating a student login code must invalidate existing student sessions.
 - The administrator UI will use a hashed access code configured through `.env` and a protected server-side session.
-- Staff cannot manually open an experiment while a required readiness indicator is incomplete. Course audience, course maxima, student codes, condition setup/assignment, access-data completeness, and required slot capacity are blocking checks; no schedule and no participant maximum are warnings.
-- Confirming a participation stores the amount actually credited as a snapshot. It is the lesser of the experiment reward and the student's remaining course allowance, including zero after the cap; removing confirmation clears the snapshot.
-- Participation remains possible after the course point maximum has been reached.
+- Staff cannot manually open an experiment while a required readiness indicator is incomplete. Course audience, course point targets, student codes, condition setup/assignment, access-data completeness, and required slot capacity are blocking checks; no schedule and no participant maximum are warnings.
+- `confirmed_at` is the grading-status gate. Student, dashboard, and report totals join confirmed participations to the current `experiments.reward_credits`; the legacy nullable `reward_credits_snapshot` column is ignored for totals and cleared by confirmation changes.
+- Participation and full reward credit remain possible after the course point target has been reached.
 - Explicitly undated time slots have no start/end values and are the supported `Kein passender Termin` option.
 - The audit log records successful authentication, student participation, code provisioning, and management actions without storing plaintext access codes.
 - `APP_TIMEZONE` controls schedule parsing and comparison and defaults to `Europe/Zurich`.
@@ -142,7 +142,7 @@ The management UI should support:
 - Delete setup experiments when needed.
 - Open and close experiments.
 - Configure eligibility mode, condition mode, slot requirement, and sort order.
-- Configure course audience, public availability window, participant maximum, numeric reward, and private notes.
+- Configure course audience, public availability window, participant maximum, course-independent numeric reward, and private notes.
 - Review readiness indicators and open an experiment only after blocking setup issues are resolved.
 - Add and rename conditions.
 - Delete unused conditions.
@@ -166,14 +166,14 @@ The management UI should support:
 - Sort approval-report columns, filter the report by student `Kürzel` or course, and download the displayed report as CSV.
 - Enter appointment text per participation.
 - Toggle `Angerechnet`.
-- Review credited rewards, course totals, and recent audit events.
+- Review current credited rewards, dynamically computed course totals, and recent audit events.
 - Reset participations and release access data when desired.
 
 The current V2 staff API is intentionally centralized in `api/manage/actions.php`, with dashboard data from `api/manage/dashboard.php`. The staff UI is organized into an experiment overview, a dedicated global allowlist view, an experiment editing view, and an experiment-specific grading view. Experiment states are shown in a top workflow strip. In the overview, clicking an experiment row opens its editing view. The global allowlist is reached from the editable student-count badge in the navbar instead of being part of the experiment hierarchy, and the navbar brand returns to the experiment overview.
 
 The grading view builds its table from the selected experiment configuration. It always shows who opened access information and when (`Zugang geöffnet`, backed by `participations.assigned_at`), and only shows condition, slot, compact access-field, and appointment columns when those features are configured for the experiment. Link access fields are shown as buttons labeled with the field name instead of raw URLs. Staff can filter and sort each data column in the grading table. The bulk-grading modal uses the same column dropdown presentation as an additive selection builder: searches and value checks add matching rows to the checked set, while row checkboxes remove individual selections. Bulk actions apply `Anrechnen`, `Anrechnung entfernen`, or `Reset` to explicit participation IDs. Bulk reset releases access pool rows and deletes related runtime data inside one transaction. A separate no-shows card lists registered or eligible students who have not clicked `Teilnehmen` and therefore have no participation row yet.
 
-The Reports view is cross-experiment and read-only. It derives each student `Kürzel` from the local part of `allowed_students.student_email`, includes the student's course, credited total, and course maximum, includes every globally allowed student as one row, and includes every experiment as a `0`/`1` column. A value is `1` only when the matching participation has `confirmed_at IS NOT NULL`; opening access without staff confirmation remains `0`. The visible rows can be filtered by `Kürzel` and course. The CSV download is generated from the currently displayed filtered/sorted table.
+The Reports view is cross-experiment and read-only. It derives each student `Kürzel` from the local part of `allowed_students.student_email`, includes the student's course, dynamically computed credited total, and course target, includes every globally allowed student as one row, and includes every experiment as a `0`/`1` column. A value is `1` only when the matching participation has `confirmed_at IS NOT NULL`; opening access without staff confirmation remains `0`. Confirmed totals always use current experiment rewards. The visible rows can be filtered by `Kürzel` and course. The CSV download is generated from the currently displayed filtered/sorted table.
 
 ## Student UI Responsibilities
 
@@ -185,7 +185,7 @@ The student UI should:
 - Load overview data dynamically from `api/student_overview.php`.
 - Show visible experiments with columns for experiment, condition, assignment, assignment date, and `Angerechnet`.
 - Show disabled buttons for closed experiments.
-- Show course credit progress, experiment rewards, effective availability, and full-capacity state.
+- Show course point progress against the student's course-specific target, current experiment rewards, effective availability, and full-capacity state.
 - Let students choose a condition only when the experiment uses `student_choice`.
 - Claim/retrieve access through `api/claim.php`.
 - Show access fields generically based on API payloads.
@@ -245,7 +245,7 @@ Run:
 - `php tests/api_smoke_test.php`
 
 `js_regression_test.php` currently catches management-client regressions that JavaScript syntax checking would miss, including pool-rendering references to grading-only variables.
-The API smoke test uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable. When SQLite support is available, it covers authentication, grouped rosters and access-code provisioning, course audiences, availability schedules, participant limits, readiness, private notes, undated slots, student claim/retrieval, slot capacity, management setup, eligibility guards, condition assignment, bundled pool import, staff-entered access values, capped reward confirmation, audit events, participation reset, randomization, and the cross-experiment approval report.
+The API smoke test uses a temporary SQLite database and skips when `pdo_sqlite` is unavailable. When SQLite support is available, it covers authentication, grouped rosters and access-code provisioning, course audiences, availability schedules, participant limits, readiness, private notes, undated slots, student claim/retrieval, slot capacity, management setup, eligibility guards, condition assignment, bundled pool import, staff-entered access values, dynamic uncapped reward confirmation, course-specific targets and percentages, audit events, participation reset, randomization, and the cross-experiment approval report.
 
 On the current development machine as last observed:
 
@@ -258,7 +258,7 @@ On the current development machine as last observed:
 - Clean `schema.sql` plus `seed.sql` imports passed on MariaDB 10.6.28, MariaDB 11.4.13, and MySQL 8.4.10.
 - Example-seed import followed by `reset_all_data.sql`, and full `drop_tables.sql` followed by rebuild, both passed.
 - The deployment preflight passed against a dedicated MySQL account with only `SELECT`, `INSERT`, `UPDATE`, and `DELETE` privileges.
-- A MySQL-backed HTTP acceptance flow passed administrator/student authentication, code generation, experiment opening, private-note isolation, participant-limit enforcement, partial reward confirmation, reports, and audit-code secrecy.
+- A MySQL-backed HTTP acceptance flow previously passed administrator/student authentication, code generation, experiment opening, private-note isolation, participant-limit enforcement, the former capped reward behavior, reports, and audit-code secrecy; the dynamic reward semantics still require a fresh MySQL acceptance run.
 - The repository owner's `.env.test` target passed a destructive local MySQL 8.0.34 cycle: clean import, example-seed/full-reset, full drop/rebuild, preflight, and comprehensive authenticated HTTP acceptance. It was returned to an empty schema-version-3 state afterward.
 
 ## Known Deferred Work

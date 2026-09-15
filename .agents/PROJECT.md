@@ -30,6 +30,7 @@ Experiment Assignment App is a PHP/MySQL application for managing student experi
 - [x] 2026-09-09: Local MySQL integration acceptance
 - [x] 2026-09-09: Protected browser deployment preflight
 - [x] 2026-09-15: Student points visualization plan and green baseline
+- [x] 2026-09-15: Dynamic uncapped reward semantics
 - [ ] Clean production deployment and semester activation
 
 ## 2026-05-11: V2 Greenfield Multi-Experiment Implementation
@@ -1262,3 +1263,55 @@ Observed on 2026-09-15:
 ### Next Steps
 
 - Implement Milestone 1 from `.agents/PLAN_POINTSVISUAL.md`: dynamic uncapped reward semantics across student overview, management operations, dashboard, and reports.
+
+## 2026-09-15: Dynamic Uncapped Reward Semantics
+
+### Goal
+
+Make the current reward of every confirmed experiment count in full, independently of the student's course target, and expose server-calculated progress percentages for course-specific targets.
+
+### What Changed
+
+- Changed student totals to sum current `experiments.reward_credits` for confirmed participations instead of stored reward snapshots.
+- Added `credits.percentage`, rounded to two decimal places, with `null` for missing or non-positive targets.
+- Kept `credits.remaining` compatible while flooring it at zero above target.
+- Made student experiment rows and the management grading dashboard expose the current reward as `creditedReward`.
+- Removed partial-credit, zero-after-target, and course-target-lowering guards from single and bulk grading flows.
+- Changed the management report to calculate current, uncapped reward totals.
+- Left the nullable `participations.reward_credits_snapshot` column in place for schema compatibility; confirmation operations clear it and runtime totals ignore it.
+- Added SQLite HTTP coverage for independent 8- and 10-point course targets, exact and above-target percentages, full rewards across and after a target, legacy snapshot isolation, reward-edit recalculation, target lowering, null/zero targets, and single/bulk confirmation behavior.
+- Updated README and canonical context documentation to define the course value as a target rather than a cap.
+
+### How To Run
+
+No database change is required. Deploy the updated application files over an existing V3 schema.
+
+### How To Test
+
+- `Get-ChildItem -Recurse -Filter *.php | ForEach-Object { php -l $_.FullName }`
+- `node --check assets/app.js`
+- `node --check manage/manage.js`
+- `php tests/config_test.php`
+- `php tests/schema_test.php`
+- `php tests/validation_test.php`
+- `php tests/text_quality_test.php`
+- `php tests/js_regression_test.php`
+- `php tests/api_smoke_test.php`
+
+Observed on 2026-09-15:
+
+- Every PHP file passed syntax validation.
+- Both browser JavaScript applications passed syntax validation.
+- All six PHP test scripts passed, including the expanded SQLite-backed authenticated API smoke test.
+- `git diff --check` passed.
+
+### Known Issues And Decisions
+
+- `student_groups.max_credits` remains the persisted field name for backward-compatible course targets.
+- `participations.reward_credits_snapshot` remains a nullable legacy schema column and is not authoritative.
+- There is no schema-version change and no phpMyAdmin migration script because the live V3 database already contains all required columns.
+- Student-facing labels and the visual progress bar are delivered by Milestone 2.
+
+### Next Steps
+
+- Implement Milestone 2 from `.agents/PLAN_POINTSVISUAL.md`: the accessible student points summary, percentage, progress bar, fractional formatting, and target terminology.

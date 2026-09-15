@@ -475,7 +475,7 @@ function setup_sqlite_database(string $dbPath): void
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )');
 
-    $pdo->exec("INSERT INTO student_groups (id, name, max_credits) VALUES (1, 'Course A', 4), (2, 'Course B', 6)");
+    $pdo->exec("INSERT INTO student_groups (id, name, max_credits) VALUES (1, 'Course A', 8), (2, 'Course B', 10)");
     $studentCodes = [
         'alice@students.zhaw.ch' => ['code' => 'alice1', 'groupId' => 1],
         'bob@students.zhaw.ch' => ['code' => 'bob22', 'groupId' => 1],
@@ -758,6 +758,21 @@ try {
     ]);
     assert_equals($response['status'], 200, 'bulk grading should confirm selected participations');
     assert_equals($response['body']['affectedCount'] ?? null, 2, 'bulk confirmation should affect two participations');
+    assert_equals($response['body']['creditedRewards'][(string) $bobParticipationId] ?? null, 2, 'Course A student should receive the full experiment reward');
+    assert_equals($response['body']['creditedRewards'][(string) $charlieParticipationId] ?? null, 2, 'Course B student should receive the same full experiment reward');
+
+    login_student($baseUrl, 'bob@students.zhaw.ch', 'bob22');
+    $response = make_request($baseUrl, 'GET', '/api/student_overview.php');
+    assert_equals($response['body']['credits']['earned'] ?? null, 2, 'Course A overview should total current confirmed rewards');
+    assert_equals($response['body']['credits']['maximum'] ?? null, 8, 'Course A overview should expose its own target');
+    assert_equals($response['body']['credits']['remaining'] ?? null, 6, 'Course A overview should show points remaining to target');
+    assert_equals($response['body']['credits']['percentage'] ?? null, 25, 'Course A overview should calculate target percentage');
+
+    login_student($baseUrl, 'charlie@students.zhaw.ch', 'charlie3');
+    $response = make_request($baseUrl, 'GET', '/api/student_overview.php');
+    assert_equals($response['body']['credits']['earned'] ?? null, 2, 'Course B overview should total the same experiment reward');
+    assert_equals($response['body']['credits']['maximum'] ?? null, 10, 'Course B overview should expose its different target');
+    assert_equals($response['body']['credits']['percentage'] ?? null, 20, 'Course B overview should calculate its own target percentage');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'bulk_grading_operation',
@@ -767,6 +782,10 @@ try {
     ]);
     assert_equals($response['status'], 200, 'bulk grading should remove selected confirmations');
     assert_equals($response['body']['affectedCount'] ?? null, 1, 'bulk unconfirmation should affect one participation');
+
+    $response = make_request($baseUrl, 'GET', '/api/student_overview.php');
+    assert_equals($response['body']['credits']['earned'] ?? null, 0, 'bulk unconfirmation should remove the current reward from the course total');
+    assert_equals($response['body']['credits']['percentage'] ?? null, 0, 'a positive target with no earned points should report zero percent');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'bulk_grading_operation',
@@ -1002,6 +1021,36 @@ try {
     $response = make_request($baseUrl, 'POST', '/api/claim.php', ['experimentId' => $courseExperimentId]);
     assert_equals($response['status'], 409, 'participant maximum should reject additional claims');
     assert_equals($response['body']['error_code'] ?? null, 'EXPERIMENT_FULL', 'full experiment response should be explicit');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_student_group',
+        'id' => 2,
+        'name' => 'Course B',
+        'maxCredits' => null,
+    ]);
+    assert_equals($response['status'], 200, 'course target should be clearable even while student sessions exist');
+    $response = make_request($baseUrl, 'GET', '/api/student_overview.php');
+    assert_equals($response['body']['credits']['maximum'] ?? null, null, 'overview should expose a missing course target');
+    assert_equals($response['body']['credits']['percentage'] ?? null, null, 'missing target should not produce a percentage');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_student_group',
+        'id' => 2,
+        'name' => 'Course B',
+        'maxCredits' => 0,
+    ]);
+    assert_equals($response['status'], 200, 'zero should be accepted as a configured course target');
+    $response = make_request($baseUrl, 'GET', '/api/student_overview.php');
+    assert_equals($response['body']['credits']['maximum'] ?? null, 0, 'overview should expose a zero course target');
+    assert_equals($response['body']['credits']['percentage'] ?? null, null, 'zero target should not produce a percentage');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_student_group',
+        'id' => 2,
+        'name' => 'Course B',
+        'maxCredits' => 10,
+    ]);
+    assert_equals($response['status'], 200, 'Course B target should be restorable after percentage edge-case checks');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'save_slot',
@@ -1451,7 +1500,14 @@ try {
     ]);
     assert_equals($response['status'], 200, 'management should toggle confirmation');
     assert_equals($response['body']['confirmed'] ?? null, true, 'confirmation should be enabled');
-    assert_equals($response['body']['creditedReward'] ?? null, 4, 'final reward should be partially counted at the course maximum');
+    assert_equals($response['body']['creditedReward'] ?? null, 5, 'confirmation should count the full experiment reward');
+
+    $verificationPdo = new PDO('sqlite:' . $dbPath, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    $snapshotStatement = $verificationPdo->prepare('SELECT reward_credits_snapshot FROM participations WHERE id = ?');
+    $snapshotStatement->execute([$managedParticipationId]);
+    assert_equals($snapshotStatement->fetchColumn(), null, 'new confirmations should not persist a reward snapshot');
+    $verificationPdo->prepare('UPDATE participations SET reward_credits_snapshot = ? WHERE id = ?')->execute([0.25, $managedParticipationId]);
+    unset($snapshotStatement, $verificationPdo);
 
     $response = make_request($baseUrl, 'GET', '/api/manage/report.php');
     assert_equals($response['status'], 200, 'report should load after confirmation');
@@ -1459,7 +1515,7 @@ try {
     $erikReportRow = report_row_by_code($response['body'] ?? [], 'erik');
     assert_equals(report_value_for_experiment($response['body'] ?? [], $danaReportRow, $managedExperimentId), 1, 'confirmed participation should count as approved');
     assert_equals(report_value_for_experiment($response['body'] ?? [], $erikReportRow, $managedExperimentId), 0, 'missing participation should stay zero');
-    assert_equals($danaReportRow['totalCredits'] ?? null, 4, 'report should total snapshotted course credits');
+    assert_equals($danaReportRow['totalCredits'] ?? null, 5, 'report should total current experiment rewards and ignore legacy snapshots');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'save_appointment',
@@ -1470,9 +1526,9 @@ try {
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'save_experiment',
-        'name' => 'Additional Participation After Maximum',
+        'name' => 'Additional Participation Beyond Target',
         'maxParticipants' => 1,
-        'rewardCredits' => 1,
+        'rewardCredits' => 4,
         'audienceMode' => 'all_groups',
         'groupIds' => [],
         'eligibilityMode' => 'selected',
@@ -1489,13 +1545,13 @@ try {
         'email' => 'dana@students.zhaw.ch',
         'conditionId' => null,
     ]);
-    assert_equals($response['status'], 200, 'management should select student who already reached course maximum');
+    assert_equals($response['status'], 200, 'management should select a student approaching the course target');
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'save_experiment',
         'id' => $additionalExperimentId,
-        'name' => 'Additional Participation After Maximum',
+        'name' => 'Additional Participation Beyond Target',
         'maxParticipants' => 1,
-        'rewardCredits' => 1,
+        'rewardCredits' => 4,
         'audienceMode' => 'all_groups',
         'groupIds' => [],
         'eligibilityMode' => 'selected',
@@ -1506,19 +1562,39 @@ try {
     ]);
     assert_equals($response['status'], 200, 'selected additional experiment should open when ready');
     $response = make_request($baseUrl, 'POST', '/api/claim.php', ['experimentId' => $additionalExperimentId]);
-    assert_equals($response['status'], 200, 'reaching course maximum must not prevent further participation');
+    assert_equals($response['status'], 200, 'reaching the course target must not prevent further participation');
     $response = make_request($baseUrl, 'GET', '/api/manage/dashboard.php');
     $additionalParticipation = dashboard_participation($response['body'] ?? [], 'dana@students.zhaw.ch', $additionalExperimentId);
     $auditActions = array_column($response['body']['auditEvents'] ?? [], 'action');
     assert_true(in_array('participation_claimed', $auditActions, true), 'audit log should include successful student claims');
     assert_true(in_array('save_experiment', $auditActions, true), 'audit log should include successful management changes');
     assert_true(in_array('generate_student_access_codes', $auditActions, true), 'audit log should include access-code generation without plaintext values');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_student_group',
+        'id' => 1,
+        'name' => 'Course A',
+        'maxCredits' => 5,
+    ]);
+    assert_equals($response['status'], 200, 'course target may equal the points already earned');
+    $response = make_request($baseUrl, 'GET', '/api/student_overview.php');
+    assert_equals($response['body']['credits']['earned'] ?? null, 5, 'unconfirmed participation should not contribute to the total');
+    assert_equals($response['body']['credits']['percentage'] ?? null, 100, 'exactly reaching a positive target should report 100 percent');
+
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'toggle_confirmation',
         'participationId' => (int) $additionalParticipation['id'],
     ]);
     assert_equals($response['status'], 200, 'additional participation should still be confirmable');
-    assert_equals($response['body']['creditedReward'] ?? null, 0, 'reward after course maximum should count as zero');
+    assert_equals($response['body']['creditedReward'] ?? null, 4, 'a confirmation after reaching the course target should count in full');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_student_group',
+        'id' => 1,
+        'name' => 'Course A',
+        'maxCredits' => 8,
+    ]);
+    assert_equals($response['status'], 200, 'Course A target should be restored for the crossing-target assertions');
 
     $response = make_request($baseUrl, 'GET', '/api/student_overview.php?email=dana%40students.zhaw.ch');
     assert_equals($response['status'], 200, 'student should retrieve managed assignment');
@@ -1527,10 +1603,83 @@ try {
     assert_equals($managedExperiment['canViewAccess'] ?? null, false, 'confirmed participations should not expose access button');
     assert_equals(count($managedExperiment['accessItems'] ?? []), 0, 'confirmed participations should not expose access data');
     assert_equals($managedExperiment['appointmentText'] ?? null, '09:30', 'student overview should show appointment text');
-    assert_equals($managedExperiment['creditedReward'] ?? null, 4, 'student overview should show partially counted reward');
-    assert_equals($response['body']['credits']['earned'] ?? null, 4, 'student overview should show capped course total');
+    assert_equals($managedExperiment['creditedReward'] ?? null, 5, 'student overview should show the current full reward');
+    assert_equals($response['body']['credits']['earned'] ?? null, 9, 'student overview should show an uncapped course total');
+    assert_equals($response['body']['credits']['maximum'] ?? null, 8, 'student overview should preserve the course target');
+    assert_equals($response['body']['credits']['remaining'] ?? null, 0, 'points remaining should stop at zero above target');
+    assert_equals($response['body']['credits']['percentage'] ?? null, 112.5, 'student overview percentage should exceed 100');
     $additionalExperiment = experiment_by_id($response['body'] ?? [], $additionalExperimentId);
-    assert_equals($additionalExperiment['creditedReward'] ?? null, 0, 'student overview should show zero reward after maximum');
+    assert_equals($additionalExperiment['creditedReward'] ?? null, 4, 'student overview should show the full reward that crosses the current target');
+
+    $response = make_request($baseUrl, 'GET', '/api/manage/report.php');
+    $danaReportRow = report_row_by_code($response['body'] ?? [], 'dana');
+    assert_equals($danaReportRow['totalCredits'] ?? null, 9, 'management report should show the uncapped dynamic total');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_student_group',
+        'id' => 1,
+        'name' => 'Course A',
+        'maxCredits' => 7,
+    ]);
+    assert_equals($response['status'], 200, 'course target may be lowered below already earned points');
+    $response = make_request($baseUrl, 'GET', '/api/student_overview.php');
+    assert_equals($response['body']['credits']['earned'] ?? null, 9, 'lowering the target must not alter earned points');
+    assert_equals($response['body']['credits']['percentage'] ?? null, 128.57, 'percentage should be recalculated against a lower target');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_student_group',
+        'id' => 1,
+        'name' => 'Course A',
+        'maxCredits' => 8,
+    ]);
+    assert_equals($response['status'], 200, 'Course A target should be restorable');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'save_experiment',
+        'id' => $managedExperimentId,
+        'name' => 'Managed Experiment',
+        'description' => 'Created through management API',
+        'adminNotes' => 'Internal smoke-test note',
+        'eligibilityMode' => 'selected',
+        'conditionMode' => 'assigned',
+        'requiresTimeSlot' => false,
+        'maxParticipants' => 1,
+        'rewardCredits' => 6,
+        'audienceMode' => 'all_groups',
+        'groupIds' => [],
+        'isOpen' => true,
+        'sortOrder' => 30,
+    ]);
+    assert_equals($response['status'], 200, 'confirmed experiment reward should remain editable');
+
+    $response = make_request($baseUrl, 'GET', '/api/student_overview.php');
+    $managedExperiment = experiment_by_id($response['body'] ?? [], $managedExperimentId);
+    assert_equals($managedExperiment['creditedReward'] ?? null, 6, 'confirmed row should immediately expose the edited reward');
+    assert_equals($response['body']['credits']['earned'] ?? null, 10, 'reward edit should immediately recalculate the student total');
+    assert_equals($response['body']['credits']['percentage'] ?? null, 125, 'reward edit should immediately recalculate the percentage');
+
+    $response = make_request($baseUrl, 'GET', '/api/manage/dashboard.php');
+    $managedParticipation = dashboard_participation($response['body'] ?? [], 'dana@students.zhaw.ch', $managedExperimentId);
+    assert_equals($managedParticipation['creditedReward'] ?? null, 6, 'dashboard should expose the edited current reward');
+    $response = make_request($baseUrl, 'GET', '/api/manage/report.php');
+    $danaReportRow = report_row_by_code($response['body'] ?? [], 'dana');
+    assert_equals($danaReportRow['totalCredits'] ?? null, 10, 'report should immediately reflect the edited reward');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'toggle_confirmation',
+        'participationId' => $managedParticipationId,
+    ]);
+    assert_equals($response['status'], 200, 'single grading action should remove confirmation');
+    assert_equals($response['body']['confirmed'] ?? null, false, 'single grading action should report unconfirmed state');
+    $response = make_request($baseUrl, 'GET', '/api/student_overview.php');
+    assert_equals($response['body']['credits']['earned'] ?? null, 4, 'unconfirming should remove the current experiment reward');
+
+    $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
+        'action' => 'toggle_confirmation',
+        'participationId' => $managedParticipationId,
+    ]);
+    assert_equals($response['status'], 200, 'single grading action should restore confirmation');
+    assert_equals($response['body']['creditedReward'] ?? null, 6, 'reconfirmation should return the full current reward');
 
     $response = make_request($baseUrl, 'POST', '/api/manage/actions.php', [
         'action' => 'set_student_login_code',

@@ -462,12 +462,9 @@ function participation_count_for_experiment(PDO $pdo, int $experimentId): int
 function update_participation_confirmation(PDO $pdo, int $participationId, bool $confirm): array
 {
     $statement = $pdo->prepare(
-        'SELECT p.id, p.student_email, p.confirmed_at, p.reward_credits_snapshot,
-                e.reward_credits, g.max_credits
+        'SELECT p.id, p.student_email, p.confirmed_at, e.reward_credits
          FROM participations p
          INNER JOIN experiments e ON e.id = p.experiment_id
-         INNER JOIN allowed_students a ON a.student_email = p.student_email
-         INNER JOIN student_groups g ON g.id = a.group_id
          WHERE p.id = :id
          LIMIT 1' . for_update_sql($pdo)
     );
@@ -476,12 +473,6 @@ function update_participation_confirmation(PDO $pdo, int $participationId, bool 
     if ($participation === false) {
         return ['found' => false];
     }
-
-    $studentLock = $pdo->prepare(
-        'SELECT id FROM allowed_students WHERE student_email = :student_email LIMIT 1' . for_update_sql($pdo)
-    );
-    $studentLock->execute(['student_email' => $participation['student_email']]);
-    $studentLock->fetch();
 
     if (!$confirm) {
         $update = $pdo->prepare(
@@ -499,43 +490,24 @@ function update_participation_confirmation(PDO $pdo, int $participationId, bool 
         ];
     }
 
-    if ($participation['max_credits'] === null) {
-        return ['found' => true, 'configurationError' => 'GROUP_MAX_CREDITS_MISSING'];
-    }
     if (($participation['confirmed_at'] ?? null) !== null) {
         return [
             'found' => true,
             'changed' => false,
             'confirmed' => true,
-            'creditedReward' => round((float) ($participation['reward_credits_snapshot'] ?? 0), 2),
+            'creditedReward' => round((float) ($participation['reward_credits'] ?? 0), 2),
         ];
     }
 
-    $sum = $pdo->prepare(
-        'SELECT COALESCE(SUM(reward_credits_snapshot), 0)
-         FROM participations
-         WHERE student_email = :student_email
-           AND confirmed_at IS NOT NULL
-           AND id <> :id'
-    );
-    $sum->execute([
-        'student_email' => $participation['student_email'],
-        'id' => $participationId,
-    ]);
-    $alreadyCredited = round((float) $sum->fetchColumn(), 2);
-    $remaining = max(0.0, round((float) $participation['max_credits'] - $alreadyCredited, 2));
-    $creditedReward = min(round((float) $participation['reward_credits'], 2), $remaining);
+    $creditedReward = round((float) $participation['reward_credits'], 2);
 
     $update = $pdo->prepare(
         'UPDATE participations
          SET confirmed_at = CURRENT_TIMESTAMP,
-             reward_credits_snapshot = :reward_credits_snapshot
+             reward_credits_snapshot = NULL
          WHERE id = :id'
     );
-    $update->execute([
-        'reward_credits_snapshot' => $creditedReward,
-        'id' => $participationId,
-    ]);
+    $update->execute(['id' => $participationId]);
 
     return [
         'found' => true,
@@ -661,21 +633,6 @@ try {
         }
 
         require_student_group($pdo, $id);
-        if ($maxCredits !== null) {
-            $creditRows = $pdo->prepare(
-                'SELECT a.student_email, COALESCE(SUM(CASE WHEN p.confirmed_at IS NOT NULL THEN p.reward_credits_snapshot ELSE 0 END), 0) AS earned
-                 FROM allowed_students a
-                 LEFT JOIN participations p ON p.student_email = a.student_email
-                 WHERE a.group_id = :group_id
-                 GROUP BY a.student_email'
-            );
-            $creditRows->execute(['group_id' => $id]);
-            foreach ($creditRows->fetchAll() as $creditRow) {
-                if ((float) $creditRow['earned'] > $maxCredits) {
-                    fail(409, 'GROUP_MAX_CREDITS_TOO_LOW', 'Das Punktemaximum darf nicht unter bereits angerechneten Punkten liegen.');
-                }
-            }
-        }
         $statement = $pdo->prepare(
             'UPDATE student_groups
              SET name = :name,
@@ -2089,10 +2046,6 @@ try {
             $creditedRewards = [];
             foreach ($participationIds as $participationId) {
                 $result = update_participation_confirmation($pdo, $participationId, $operation === 'confirm');
-                if (($result['configurationError'] ?? null) === 'GROUP_MAX_CREDITS_MISSING') {
-                    $pdo->rollBack();
-                    fail(409, 'GROUP_MAX_CREDITS_MISSING', 'Für mindestens einen Kurs ist noch kein Punktemaximum festgelegt.');
-                }
                 if (bool_value($result['changed'] ?? false)) {
                     $affectedCount++;
                 }
@@ -2167,10 +2120,6 @@ try {
         $confirmed = ($row['confirmed_at'] ?? null) === null;
         $pdo->beginTransaction();
         $result = update_participation_confirmation($pdo, $participationId, $confirmed);
-        if (($result['configurationError'] ?? null) === 'GROUP_MAX_CREDITS_MISSING') {
-            $pdo->rollBack();
-            fail(409, 'GROUP_MAX_CREDITS_MISSING', 'Für den Kurs ist noch kein Punktemaximum festgelegt.');
-        }
         $pdo->commit();
         json_response(200, [
             'participationId' => $participationId,

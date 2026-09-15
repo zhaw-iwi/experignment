@@ -357,7 +357,7 @@ foreach ($experimentRows as $experiment) {
 }
 
 $participationRows = $pdo->query(
-    'SELECT p.id, p.student_email, p.access_pool_row_id, p.assigned_at, p.confirmed_at, p.reward_credits_snapshot,
+    'SELECT p.id, p.student_email, p.access_pool_row_id, p.assigned_at, p.confirmed_at,
             e.id AS experiment_id, e.public_name AS experiment_name, e.reward_credits,
             ec.id AS condition_id, ec.public_name AS condition_name,
             ts.label AS slot_label,
@@ -396,7 +396,7 @@ foreach ($participationRows as $row) {
         'rewardCredits' => round((float) ($row['reward_credits'] ?? 0), 2),
         'creditedReward' => ($row['confirmed_at'] ?? null) === null
             ? null
-            : round((float) ($row['reward_credits_snapshot'] ?? 0), 2),
+            : round((float) ($row['reward_credits'] ?? 0), 2),
         'slotLabel' => $row['slot_label'],
         'appointmentText' => $row['appointment_text'],
         'fieldValues' => $fieldValues,
